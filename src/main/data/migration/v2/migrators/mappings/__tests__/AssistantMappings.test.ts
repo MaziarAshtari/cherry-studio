@@ -13,7 +13,7 @@ describe('AssistantMappings', () => {
         prompt: 'You are helpful',
         emoji: '🤖',
         description: 'A test assistant',
-        settings: { temperature: 0.7 },
+        settings: { temperature: 0.7, contextCount: 12 },
         mcpMode: 'manual',
         enableWebSearch: true,
         model: { id: 'gpt-4', provider: 'openai', name: 'GPT-4' },
@@ -34,7 +34,13 @@ describe('AssistantMappings', () => {
         // Migrator merges legacy fields onto DEFAULT_ASSISTANT_SETTINGS so the new
         // NOT NULL settings column always sees a complete object. Per-field
         // sanitiser keeps only legacy values that validate against the v2 schema.
-        settings: { ...DEFAULT_ASSISTANT_SETTINGS, temperature: 0.7, mcpMode: 'manual', enableWebSearch: true }
+        settings: {
+          ...DEFAULT_ASSISTANT_SETTINGS,
+          temperature: 0.7,
+          contextCount: 12,
+          mcpMode: 'manual',
+          enableWebSearch: true
+        }
       })
       expect(result.mcpServers).toStrictEqual([
         { assistantId: 'ast-1', mcpServerId: 'srv-1' },

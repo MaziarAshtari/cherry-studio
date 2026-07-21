@@ -47,6 +47,7 @@ describe('initialAssistantFormState', () => {
         ...DEFAULT_ASSISTANT_SETTINGS,
         temperature: 0.7,
         enableTemperature: true,
+        contextCount: 12,
         mcpMode: 'manual'
       } as AssistantSettings,
       knowledgeBaseIds: ['kb-1'],
@@ -63,6 +64,7 @@ describe('initialAssistantFormState', () => {
       modelId: 'openai::gpt-5',
       temperature: 0.7,
       enableTemperature: true,
+      contextCount: 12,
       mcpMode: 'manual',
       knowledgeBaseIds: ['kb-1'],
       mcpServerIds: ['mcp-1']
@@ -110,6 +112,14 @@ describe('diffAssistantUpdate', () => {
 
     const result = diffAssistantUpdate(form, baseline, assistant)
     expect(result?.dto.name).toBe('Original')
+  })
+
+  it('persists contextCount changes in assistant settings', () => {
+    const assistant = createAssistant()
+    const baseline = initialAssistantFormState(assistant)
+    const form = { ...baseline, contextCount: 12 }
+
+    expect(diffAssistantUpdate(form, baseline, assistant)?.dto.settings?.contextCount).toBe(12)
   })
 
   it('preserves server-side settings keys the UI does not surface', () => {

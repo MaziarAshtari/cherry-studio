@@ -79,6 +79,7 @@ type AssistantEditFormValues = {
   enableTopP: boolean
   maxTokens: number
   enableMaxTokens: boolean
+  contextCount: number
   streamOutput: boolean
   maxToolCalls: number
   enableMaxToolCalls: boolean
@@ -115,6 +116,7 @@ function defaultValuesForAssistant(resource: AssistantEditDialogResource): Assis
     enableTopP: form.enableTopP,
     maxTokens: form.maxTokens,
     enableMaxTokens: form.enableMaxTokens,
+    contextCount: form.contextCount,
     streamOutput: form.streamOutput,
     maxToolCalls: form.maxToolCalls,
     enableMaxToolCalls: form.enableMaxToolCalls,
@@ -148,6 +150,7 @@ function buildAssistantFormState(baseline: AssistantFormState, values: Assistant
     enableTopP: values.enableTopP,
     maxTokens: values.maxTokens,
     enableMaxTokens: values.enableMaxTokens,
+    contextCount: values.contextCount,
     streamOutput: values.streamOutput,
     maxToolCalls: values.maxToolCalls,
     enableMaxToolCalls: values.enableMaxToolCalls,
@@ -677,6 +680,37 @@ function AssistantAdvancedFields({
           )}
         />
       </ToggleFieldGroup>
+
+      <FormField
+        control={form.control}
+        name="contextCount"
+        render={({ field }) => (
+          <FormItem>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <FieldLabelWithHelp
+                  label={t('library.config.basic.context_count')}
+                  help={t('library.config.basic.field.context_count.hint')}
+                />
+              </div>
+              <FormControl>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  className="h-8 w-28 rounded-lg bg-transparent px-2.5 shadow-none"
+                  value={field.value}
+                  onChange={(event) => {
+                    const value = event.currentTarget.valueAsNumber
+                    field.onChange(Number.isInteger(value) && value > 0 ? value : 1)
+                  }}
+                />
+              </FormControl>
+            </div>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
 
       <ToggleFieldGroup
         label={t('library.config.basic.max_tokens')}
