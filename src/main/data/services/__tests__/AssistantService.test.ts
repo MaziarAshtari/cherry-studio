@@ -150,6 +150,15 @@ describe('AssistantDataService', () => {
       expect(result.modelId).toBeNull()
     })
 
+    it('fills newly defaulted settings on rows written by earlier v2 builds', async () => {
+      const oldSettings = Object.fromEntries(
+        Object.entries(DEFAULT_ASSISTANT_SETTINGS).filter(([key]) => key !== 'contextCount')
+      )
+      await seedAssistantRow({ id: 'ast-1', settings: oldSettings as never })
+
+      expect(assistantDataService.getById('ast-1').settings.contextCount).toBe(5)
+    })
+
     it('should surface DB DEFAULT empty strings for prompt and description', async () => {
       // emoji and settings are NOT NULL with no DB DEFAULT, so the helper supplies them.
       // prompt and description carry DB DEFAULT '' — confirm SQLite fills them when omitted.

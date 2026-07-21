@@ -1,3 +1,4 @@
+import { assistantTable } from '@data/db/schemas/assistant'
 import { messageTable } from '@data/db/schemas/message'
 import { topicTable } from '@data/db/schemas/topic'
 import { userModelTable } from '@data/db/schemas/userModel'
@@ -6,8 +7,10 @@ import { messageService } from '@data/services/MessageService'
 import { topicService } from '@data/services/TopicService'
 import { generateOrderKeySequence } from '@data/services/utils/orderKey'
 import type { AiStreamOpenRequest } from '@shared/ai/transport'
+import { DEFAULT_ASSISTANT_SETTINGS } from '@shared/data/types/assistant'
 import { createUniqueModelId } from '@shared/data/types/model'
 import { setupTestDatabase, withRoot } from '@test-helpers/db'
+import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { startAiChildTurnSpan } from '../../../observability'
@@ -188,6 +191,64 @@ describe('PersistentChatContextProvider — steer continuation history', () => {
     expect(flatten(prepared.models[0].request.messages!)).toEqual([
       { role: 'user', text: 'first question' },
       { role: 'user', text: 'retry from before' }
+    ])
+  })
+
+  it('applies the legacy contextCount boundary to persistent history including the outgoing user message', async () => {
+    const assistantId = 'assistant-limit'
+    await dbh.db.insert(assistantTable).values({
+      id: assistantId,
+      name: 'Limited Assistant',
+      emoji: '🤖',
+      modelId: MODEL_ID,
+      settings: { ...DEFAULT_ASSISTANT_SETTINGS, contextCount: 3 },
+      orderKey: 'a0'
+    })
+    await dbh.db.update(topicTable).set({ assistantId }).where(eq(topicTable.id, 'topic-1'))
+    await dbh.db.insert(messageTable).values([
+      {
+        id: 'u2',
+        parentId: 'a1',
+        topicId: 'topic-1',
+        role: 'user',
+        data: { parts: [{ type: 'text', text: 'second question' }] },
+        status: 'success',
+        siblingsGroupId: 0,
+        createdAt: 300,
+        updatedAt: 300
+      },
+      {
+        id: 'a2',
+        parentId: 'u2',
+        topicId: 'topic-1',
+        role: 'assistant',
+        data: { parts: [{ type: 'text', text: 'second answer' }] },
+        status: 'success',
+        siblingsGroupId: 2,
+        modelId: MODEL_ID,
+        createdAt: 400,
+        updatedAt: 400
+      }
+    ])
+    vi.mocked(resolveAssistantModelId).mockReturnValueOnce({ assistantId, defaultModelId: MODEL_ID })
+
+    const prepared = await provider.prepareDispatch(
+      makeSubscriber(),
+      {
+        trigger: 'submit-message',
+        topicId: 'topic-1',
+        parentAnchorId: 'a2',
+        userMessageParts: [{ type: 'text', text: 'third question' }]
+      } as AiStreamOpenRequest,
+      { hasLiveStream: false }
+    )
+
+    expect(flatten(prepared.models[0].request.messages!)).toEqual([
+      { role: 'user', text: 'first question' },
+      { role: 'assistant', text: PARTIAL },
+      { role: 'user', text: 'second question' },
+      { role: 'assistant', text: 'second answer' },
+      { role: 'user', text: 'third question' }
     ])
   })
 

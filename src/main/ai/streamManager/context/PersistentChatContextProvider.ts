@@ -12,6 +12,7 @@ import { messageService } from '@main/data/services/MessageService'
 import { topicNamingService } from '@main/services/TopicNamingService'
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import { applyApprovalDecisions } from '@shared/ai/transport'
+import { DEFAULT_ASSISTANT_SETTINGS } from '@shared/data/types/assistant'
 import { type Message as SharedMessage, type MessageSnapshot, toContentRole } from '@shared/data/types/message'
 import type { Model } from '@shared/data/types/model'
 import { parseUniqueModelId, type UniqueModelId } from '@shared/data/types/model'
@@ -25,6 +26,7 @@ import { MessageServiceBackend } from '../persistence/backends/MessageServiceBac
 import type { CherryUIMessage, StreamListener } from '../types'
 import type { ChatContextProvider, DispatchContext, PreparedDispatch } from './ChatContextProvider'
 import type { MainContinueConversationRequest, MainDispatchRequest, MainSteerContinuationRequest } from './dispatch'
+import { limitMessageHistory } from './messageHistory'
 import { resolveAssistantModelId, resolveModels, resolvePersistentSiblingsGroupId } from './modelResolution'
 
 /** The topic's assistant identity, snapshotted onto its replies so the header survives deletion. */
@@ -32,6 +34,12 @@ function resolveAssistantIdentity(assistantId: string | undefined) {
   if (!assistantId) return undefined
   const a = assistantDataService.getById(assistantId)
   return { id: a.id, name: a.name, emoji: a.emoji }
+}
+
+function resolveAssistantContextCount(assistantId: string | undefined): number {
+  return assistantId
+    ? (assistantDataService.getById(assistantId).settings.contextCount ?? DEFAULT_ASSISTANT_SETTINGS.contextCount)
+    : DEFAULT_ASSISTANT_SETTINGS.contextCount
 }
 
 /** Author snapshot for an assistant reply: the assistant with its model nested inside. */
@@ -287,7 +295,7 @@ export class PersistentChatContextProvider implements ChatContextProvider {
       listeners.push(new TraceFlushListener(req.topicId))
 
       // 7. Build per-model requests. The dispatcher runs `manager.send` itself.
-      const history = this.buildHistory(userMessage.id)
+      const history = this.buildHistory(userMessage.id, resolveAssistantContextCount(assistantId))
       const models_ = assistantPlaceholders.map(({ model, placeholder, rootSpan }) => ({
         modelId: model.id,
         request: this.buildStreamRequest(
@@ -376,7 +384,7 @@ export class PersistentChatContextProvider implements ChatContextProvider {
         new TraceFlushListener(req.topicId)
       ]
 
-      const history = this.buildHistory(anchor.id)
+      const history = this.buildHistory(anchor.id, resolveAssistantContextCount(assistantId))
       return {
         topicId: req.topicId,
         models: [
@@ -443,7 +451,7 @@ export class PersistentChatContextProvider implements ChatContextProvider {
         new TraceFlushListener(req.topicId)
       ]
 
-      const history = withSteerReminder(this.buildHistory(req.userMessageId))
+      const history = withSteerReminder(this.buildHistory(req.userMessageId, resolveAssistantContextCount(assistantId)))
       return {
         topicId: req.topicId,
         models: [
@@ -468,13 +476,16 @@ export class PersistentChatContextProvider implements ChatContextProvider {
    * assistant msg for continue-conversation (so the model sees the
    * approval-responded state).
    */
-  private buildHistory(anchorMessageId: string): CherryUIMessage[] {
+  private buildHistory(anchorMessageId: string, contextCount: number): CherryUIMessage[] {
     const messagePath = messageService.getPathToNode(anchorMessageId)
-    return messagePath.map((msg) => ({
-      id: msg.id,
-      role: toContentRole(msg.role),
-      parts: msg.data.parts ?? []
-    }))
+    return limitMessageHistory(
+      messagePath.map((msg) => ({
+        id: msg.id,
+        role: toContentRole(msg.role),
+        parts: msg.data.parts ?? []
+      })),
+      contextCount
+    )
   }
 
   private buildStreamRequest(

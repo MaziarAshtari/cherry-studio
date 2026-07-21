@@ -40,6 +40,8 @@ export const AssistantSettingsSchema = z.object({
   maxTokens: z.number().int().positive(),
   /** disabled = use model's own default */
   enableMaxTokens: z.boolean(),
+  /** Number of previous messages included alongside the current message. */
+  contextCount: z.number().int().positive(),
   /** streaming provides better UX */
   streamOutput: z.boolean(),
   /** let model decide.
@@ -80,6 +82,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   enableTopP: false,
   maxTokens: 4096,
   enableMaxTokens: false,
+  contextCount: 5,
   streamOutput: true,
   reasoning_effort: 'default',
   mcpMode: 'auto',

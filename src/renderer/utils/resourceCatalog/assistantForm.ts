@@ -40,6 +40,7 @@ export interface AssistantFormState {
   enableTopP: boolean
   maxTokens: number
   enableMaxTokens: boolean
+  contextCount: number
   streamOutput: boolean
   maxToolCalls: number
   enableMaxToolCalls: boolean
@@ -67,6 +68,7 @@ function buildAssistantSettingsFromForm(
     enableTopP: form.enableTopP,
     maxTokens: form.maxTokens,
     enableMaxTokens: form.enableMaxTokens,
+    contextCount: form.contextCount,
     streamOutput: form.streamOutput,
     maxToolCalls: form.maxToolCalls,
     enableMaxToolCalls: form.enableMaxToolCalls,
@@ -89,6 +91,7 @@ export function initialAssistantFormState(assistant: Assistant): AssistantFormSt
     enableTopP: settings.enableTopP ?? false,
     maxTokens: settings.maxTokens ?? UI_DEFAULT_MAX_TOKENS,
     enableMaxTokens: settings.enableMaxTokens ?? false,
+    contextCount: settings.contextCount ?? DEFAULT_ASSISTANT_SETTINGS.contextCount,
     streamOutput: settings.streamOutput ?? true,
     maxToolCalls: settings.maxToolCalls ?? UI_DEFAULT_MAX_TOOL_CALLS,
     enableMaxToolCalls: settings.enableMaxToolCalls ?? true,
@@ -158,6 +161,7 @@ export function diffAssistantUpdate(
     baseline.enableTopP !== form.enableTopP ||
     baseline.maxTokens !== form.maxTokens ||
     baseline.enableMaxTokens !== form.enableMaxTokens ||
+    baseline.contextCount !== form.contextCount ||
     baseline.streamOutput !== form.streamOutput ||
     baseline.maxToolCalls !== form.maxToolCalls ||
     baseline.enableMaxToolCalls !== form.enableMaxToolCalls ||

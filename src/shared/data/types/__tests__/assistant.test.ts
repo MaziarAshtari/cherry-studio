@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { AssistantIdSchema, AssistantSchema, DEFAULT_ASSISTANT_SETTINGS } from '../assistant'
+import { AssistantIdSchema, AssistantSchema, AssistantSettingsSchema, DEFAULT_ASSISTANT_SETTINGS } from '../assistant'
 
 describe('AssistantIdSchema', () => {
   it.each([
@@ -46,5 +46,12 @@ describe('AssistantSchema', () => {
 
     expect(AssistantSchema.safeParse(missingEmbeds).success).toBe(false)
     expect(AssistantSchema.parse(baseAssistant)).toMatchObject({ tags, modelName })
+  })
+})
+
+describe('AssistantSettingsSchema', () => {
+  it('uses a positive integer for contextCount', () => {
+    expect(AssistantSettingsSchema.safeParse({ ...DEFAULT_ASSISTANT_SETTINGS, contextCount: 3 }).success).toBe(true)
+    expect(AssistantSettingsSchema.safeParse({ ...DEFAULT_ASSISTANT_SETTINGS, contextCount: 0 }).success).toBe(false)
   })
 })

@@ -58,6 +58,8 @@ function rowToAssistant(
     ...clean,
     // Preserve the T | null contract: `modelId` is legitimately nullable (R3 exception).
     modelId: row.modelId as UniqueModelId | null,
+    // Keep rows written by earlier v2 dev builds compatible when settings gain a defaulted field.
+    settings: { ...DEFAULT_ASSISTANT_SETTINGS, ...row.settings },
     mcpServerIds: relations.mcpServerIds,
     knowledgeBaseIds: relations.knowledgeBaseIds,
     createdAt: timestampToISO(row.createdAt),

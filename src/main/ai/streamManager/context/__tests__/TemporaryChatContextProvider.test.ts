@@ -70,7 +70,11 @@ describe('TemporaryChatContextProvider', () => {
     // sensible defaults
     hasTopicMock.mockReturnValue(true)
     getTopicMock.mockReturnValue({ id: '1', assistantId: 'asst_1' })
-    getAssistantByIdMock.mockReturnValue({ id: 'asst_1', modelId: 'openai::gpt-4o' })
+    getAssistantByIdMock.mockReturnValue({
+      id: 'asst_1',
+      modelId: 'openai::gpt-4o',
+      settings: { contextCount: 5 }
+    })
     getByKeyMock.mockReturnValue({
       id: 'openai::gpt-4o',
       providerId: 'openai',
@@ -180,6 +184,25 @@ describe('TemporaryChatContextProvider', () => {
     expect(getByKeyMock).toHaveBeenCalledTimes(1)
     expect(getByKeyMock).toHaveBeenCalledWith('anthropic', 'claude-sonnet-4-5')
     expect(prepared.models[0].modelId).toBe('anthropic::claude-sonnet-4-5')
+  })
+
+  it('applies the legacy contextCount boundary to history including the outgoing user message', async () => {
+    getAssistantByIdMock.mockReturnValue({
+      id: 'asst_1',
+      modelId: 'openai::gpt-4o',
+      settings: { contextCount: 3 }
+    })
+    listMessagesMock.mockReturnValueOnce([
+      { id: 'u1', role: 'user', data: { parts: [] } },
+      { id: 'a1', role: 'assistant', data: { parts: [] } },
+      { id: 'u2', role: 'user', data: { parts: [] } },
+      { id: 'a2', role: 'assistant', data: { parts: [] } },
+      { id: 'u3', role: 'user', data: { parts: [] } }
+    ])
+
+    const prepared = await provider.prepareDispatch(makeSubscriber(), openReq(), { hasLiveStream: false })
+
+    expect(prepared.models[0].request.messages?.map(({ id }) => id)).toEqual(['u1', 'a1', 'u2', 'a2', 'u3'])
   })
 
   it('appends the user message, then returns a PreparedDispatch with a TemporaryChatBackend listener', async () => {

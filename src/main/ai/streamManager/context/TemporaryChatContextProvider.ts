@@ -8,6 +8,7 @@ import { assistantDataService } from '@data/services/AssistantService'
 import { loggerService } from '@logger'
 import { isAgentSessionTopic } from '@main/ai/agentSession/topic'
 import { temporaryChatService } from '@main/data/services/TemporaryChatService'
+import { DEFAULT_ASSISTANT_SETTINGS } from '@shared/data/types/assistant'
 import { toContentRole } from '@shared/data/types/message'
 import { parseUniqueModelId, type UniqueModelId } from '@shared/data/types/model'
 
@@ -17,6 +18,7 @@ import { TemporaryChatBackend } from '../persistence/backends/TemporaryChatBacke
 import type { CherryUIMessage, StreamListener } from '../types'
 import type { ChatContextProvider, DispatchContext, PreparedDispatch } from './ChatContextProvider'
 import type { MainDispatchRequest } from './dispatch'
+import { limitMessageHistory } from './messageHistory'
 import { resolveAssistantModelId, resolveModels } from './modelResolution'
 
 const logger = loggerService.withContext('TemporaryChatContextProvider')
@@ -91,11 +93,14 @@ export class TemporaryChatContextProvider implements ChatContextProvider {
     })
 
     const prior = temporaryChatService.listMessages(req.topicId)
-    const history: CherryUIMessage[] = prior.map((m) => ({
-      id: m.id,
-      role: toContentRole(m.role),
-      parts: m.data.parts ?? []
-    }))
+    const history: CherryUIMessage[] = limitMessageHistory(
+      prior.map((m) => ({
+        id: m.id,
+        role: toContentRole(m.role),
+        parts: m.data.parts ?? []
+      })),
+      assistant?.settings?.contextCount ?? DEFAULT_ASSISTANT_SETTINGS.contextCount
+    )
 
     const listeners: StreamListener[] = [
       subscriber,
