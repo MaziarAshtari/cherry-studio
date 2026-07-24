@@ -3,7 +3,7 @@ import type * as ImageCaptureTargetsHook from '@renderer/hooks/useImageCaptureTa
 import { popup } from '@renderer/services/popup'
 import { toast } from '@renderer/services/toast'
 import type { AgentSessionEntity } from '@shared/data/api/schemas/agentSessions'
-import type { AgentWorkspaceEntity } from '@shared/data/api/schemas/agentWorkspaces'
+import { AGENT_WORKSPACE_TYPE, type AgentWorkspaceEntity } from '@shared/data/api/schemas/agentWorkspaces'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -260,6 +260,14 @@ const cacheMocks = vi.hoisted(() => ({
   setCache: vi.fn()
 }))
 
+const fileNavigationMocks = vi.hoisted(() => ({
+  request: null as null | ((transition: () => void) => void)
+}))
+
+vi.mock('../AgentRightPane', () => ({
+  useOptionalAgentFileNavigation: () => fileNavigationMocks.request
+}))
+
 const tabsContextMocks = vi.hoisted(() => ({
   closeConversationTabs: vi.fn(),
   openTab: vi.fn(),
@@ -476,6 +484,8 @@ vi.mock('@renderer/hooks/usePins', () => ({
 }))
 
 vi.mock('@renderer/utils/agentSession', () => ({
+  buildAgentFileWorkspaceKey: (workspaceId?: string | null, workspacePath?: string) =>
+    `${workspaceId ?? ''}\0${workspacePath ?? ''}`,
   buildAgentSessionTopicId: (sessionId: string) => `agent-session:${sessionId}`,
   getChannelTypeIcon: vi.fn(() => undefined)
 }))
@@ -522,7 +532,6 @@ vi.mock('react-i18next', () => ({
         'agent.session.group.yesterday': 'Yesterday',
         'agent.session.list.title': 'Tasks',
         'agent.session.new': 'New task',
-        'agent.skill.manage.title': 'Manage skills',
         'agent.pin.title': 'Pin Agent',
         'agent.session.pin.title': 'Pin task',
         'agent.session.reorder.error.failed': 'Failed to reorder tasks',
@@ -787,6 +796,7 @@ describe('Sessions', () => {
       }
     })
     cacheMocks.state.activeSessionId = 'session-a'
+    fileNavigationMocks.request = null
     setupSessions()
     topicStreamStatusMocks.useTopicStreamStatus.mockImplementation(() => createTopicStreamStatusMock())
     pinMocks.usePins.mockReturnValue({
@@ -1227,13 +1237,59 @@ describe('Sessions', () => {
       ]
     })
     const setActiveSessionId = vi.fn()
+    const requestFileNavigation = vi.fn()
+    fileNavigationMocks.request = requestFileNavigation
 
     render(<SessionsForTest activeSessionId="session-a" setActiveSessionId={setActiveSessionId} />)
     fireEvent.click(screen.getByRole('button', { name: 'Beta agent' }))
 
     expect(setActiveSessionId).toHaveBeenCalledWith('session-b', expect.objectContaining({ id: 'session-b' }))
+    expect(requestFileNavigation).not.toHaveBeenCalled()
     expect(cacheMocks.setActiveSessionId).not.toHaveBeenCalled()
     expect(cacheMocks.state.activeSessionId).toBe('session-a')
+  })
+
+  it('requests confirmation before switching to a session in another file workspace', () => {
+    preferenceMocks.values.set('agent.session.display_mode', 'agent')
+    setSessionGroupExpansionCache({
+      ...createExpandedSessionGroupExpansionFixture(),
+      agent: ['session:agent:agent-a', 'session:agent:agent-b']
+    })
+    agentDataMocks.useAgents.mockReturnValue({
+      agents: [
+        { id: 'agent-a', model: 'model-a', name: 'Alpha agent', configuration: { avatar: 'A' } },
+        { id: 'agent-b', model: 'model-b', name: 'Beta agent', configuration: { avatar: 'B' } }
+      ],
+      isLoading: false,
+      error: undefined
+    })
+    setupSessions({
+      sessions: [
+        createSession({ id: 'session-a', name: 'Alpha session', agentId: 'agent-a', orderKey: 'a' }),
+        createSession({
+          id: 'session-b',
+          name: 'Beta session',
+          agentId: 'agent-b',
+          orderKey: 'b',
+          workspaceId: 'ws-b',
+          workspace: makeWorkspace('/Users/jd/project-b', { id: 'ws-b', name: 'Embedded Project B' })
+        })
+      ]
+    })
+    const setActiveSessionId = vi.fn()
+    let pendingTransition: (() => void) | undefined
+    fileNavigationMocks.request = vi.fn((transition) => {
+      pendingTransition = transition
+    })
+
+    render(<SessionsForTest activeSessionId="session-a" setActiveSessionId={setActiveSessionId} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Beta agent' }))
+
+    expect(fileNavigationMocks.request).toHaveBeenCalledOnce()
+    expect(setActiveSessionId).not.toHaveBeenCalled()
+
+    pendingTransition?.()
+    expect(setActiveSessionId).toHaveBeenCalledWith('session-b', expect.objectContaining({ id: 'session-b' }))
   })
 
   it('uses the default agent avatar for blank agent group avatars', () => {
@@ -1362,7 +1418,7 @@ describe('Sessions', () => {
     expect(screen.getByText('Alpha session').closest('[role="option"]')).not.toHaveAttribute('data-selected')
   })
 
-  it('shows the skill resource menu entry with agent management in the display menu', () => {
+  it('keeps Skill management out of the display menu', () => {
     const onManageAgents = vi.fn()
     const onManageSkills = vi.fn()
     setupSessions({
@@ -1389,9 +1445,8 @@ describe('Sessions', () => {
     expect(screen.queryByRole('button', { name: 'Manage skills' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Display mode' }))
     expect(screen.getByRole('button', { name: 'Manage Agents' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Manage skills' }))
-
-    expect(onManageSkills).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Manage skills' })).not.toBeInTheDocument()
+    expect(onManageSkills).not.toHaveBeenCalled()
     expect(onManageAgents).not.toHaveBeenCalled()
   })
 
@@ -1452,6 +1507,45 @@ describe('Sessions', () => {
     )
 
     expect(screen.queryByRole('button', { name: 'Gamma agent' })).not.toBeInTheDocument()
+  })
+
+  it('guards creation of a new system session because it receives a distinct file workspace', async () => {
+    const onCreateSession = vi.fn()
+    preferenceMocks.values.set('agent.session.display_mode', 'agent')
+    agentDataMocks.useAgents.mockReturnValue({
+      agents: [{ id: 'agent-a', model: 'model-a', name: 'Alpha agent' }],
+      isLoading: false,
+      error: undefined
+    })
+    setupSessions({
+      sessions: [
+        createSession({
+          id: 'session-a',
+          agentId: 'agent-a',
+          workspaceId: null,
+          workspace: makeWorkspace('/system/session-a', { type: AGENT_WORKSPACE_TYPE.SYSTEM })
+        })
+      ]
+    })
+    let pendingTransition: (() => void) | undefined
+    fileNavigationMocks.request = vi.fn((transition) => {
+      pendingTransition = transition
+    })
+    render(<SessionsForTest activeSessionId="session-a" onCreateSession={onCreateSession} />)
+
+    const agentGroup = screen.getByRole('button', { name: 'Alpha agent' }).closest('div')
+    fireEvent.click(within(agentGroup as HTMLElement).getByRole('button', { name: 'New task' }))
+
+    expect(fileNavigationMocks.request).toHaveBeenCalledOnce()
+    expect(onCreateSession).not.toHaveBeenCalled()
+
+    pendingTransition?.()
+    await vi.waitFor(() =>
+      expect(onCreateSession).toHaveBeenCalledWith({
+        agentId: 'agent-a',
+        workspace: { type: AGENT_WORKSPACE_TYPE.SYSTEM }
+      })
+    )
   })
 
   it('renders load errors inside the shared ResourceList shell', () => {
