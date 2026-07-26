@@ -13,7 +13,7 @@ import type { ReasoningEffort } from '@cherrystudio/openai/resources'
 import { providerRegistryService } from '@data/services/ProviderRegistryService'
 import { resolveAiSdkProviderId, resolveEffectiveEndpoint } from '@main/ai/provider/endpoint'
 import { buildResolvedReasoningProviderOptions } from '@main/ai/utils/options'
-import { resolveReasoningInvocation } from '@main/ai/utils/reasoningSerializers'
+import { resolveReasoningInvocation, resolveReasoningSummarySetting } from '@main/ai/utils/reasoningSerializers'
 import { nearestEffortForBudget } from '@shared/ai/reasoning'
 import { ENDPOINT_TYPE, type Model } from '@shared/data/types/model'
 import type { Provider } from '@shared/data/types/provider'
@@ -40,7 +40,7 @@ function buildProviderOptions(
     model,
     profile: reasoningProfile.wire,
     maxTokens,
-    assistantSummary: provider.settings?.summaryText
+    assistantSummary: resolveReasoningSummarySetting(provider.settings?.summaryText, endpointType)
   })
   return buildResolvedReasoningProviderOptions({
     aiSdkProviderId,

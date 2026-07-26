@@ -2454,6 +2454,12 @@
     "response": "响应",
     "responseBody": "响应内容",
     "responseHeaders": "响应首部",
+    "response_cancelled": "服务商在响应完成前取消了请求，请重试。",
+    "response_content_filtered": "服务商因内容过滤而停止响应，请修改请求后重试。",
+    "response_failed": "服务商未能完成响应，请重试或检查服务商状态。",
+    "response_incomplete": "服务商在正常完成前结束了响应，请重试或查看响应详情。",
+    "response_max_output_tokens": "响应已达到服务商的输出 Token 上限。如果设置了 Max Tokens，请提高上限、降低推理强度或要求更简短的回答。",
+    "response_missing_terminal": "连接结束时未收到完成事件，请检查网络稳定性或重试。",
     "responses": "响应",
     "role": "角色",
     "stack": "堆栈信息",
@@ -7300,6 +7306,15 @@
             "label": "支持 enable_thinking"
           },
           "label": "API 设置",
+          "reasoning_summary": {
+            "auto": "自动",
+            "concise": "简洁",
+            "default_auto": "默认（自动）",
+            "detailed": "详细",
+            "help": "为 OpenAI Responses 模型请求服务商提供的推理摘要。此设置绝不会显示加密的推理内容。",
+            "label": "推理摘要",
+            "off": "关闭"
+          },
           "service_tier": {
             "help": "该提供商是否支持配置 service_tier 参数。开启后，可在对话页面的服务层级设置中调整该参数。（仅限OpenAI模型）",
             "label": "支持 service_tier"

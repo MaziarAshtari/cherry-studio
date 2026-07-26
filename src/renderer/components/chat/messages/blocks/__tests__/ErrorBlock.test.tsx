@@ -76,7 +76,13 @@ describe('ErrorBlock', () => {
     ['missing web search API host', 'web_search_api_host_missing'],
     ['invalid web search API host', 'web_search_api_host_invalid'],
     ['missing web search API key', 'web_search_api_key_missing'],
-    ['unavailable web search provider', 'web_search_provider_unavailable']
+    ['unavailable web search provider', 'web_search_provider_unavailable'],
+    ['cancelled response', 'response_cancelled'],
+    ['exhausted output budget', 'response_max_output_tokens'],
+    ['content-filtered response', 'response_content_filtered'],
+    ['failed response', 'response_failed'],
+    ['missing terminal event', 'response_missing_terminal'],
+    ['otherwise incomplete response', 'response_incomplete']
   ])('renders a known app-owned i18nKey for %s without AI diagnosis', (_scenario, i18nKey) => {
     const diagnoseMessageError = vi.fn().mockResolvedValue('AI summary')
     mocks.actions = { diagnoseMessageError }

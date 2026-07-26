@@ -31,7 +31,7 @@ import {
   mergeCustomProviderParameters
 } from '../../../utils/options'
 import { getCustomParameters } from '../../../utils/reasoning'
-import { resolveReasoningInvocation } from '../../../utils/reasoningSerializers'
+import { resolveReasoningInvocation, resolveReasoningSummarySetting } from '../../../utils/reasoningSerializers'
 import { createToolCallLimitStopCondition } from '../loop/toolLoopTermination'
 import type { AgentLoopHooks, AgentOptions } from '../loop/types'
 import { assembleSystemPrompt } from './assembleSystemPrompt'
@@ -99,7 +99,7 @@ export async function buildAgentParams(input: BuildAgentParamsInput): Promise<Bu
     model: invocationModel,
     profile: reasoningProfile.wire,
     maxTokens: resolveReasoningMaxTokens(request.callOverrides?.maxOutputTokens, assistant, model),
-    assistantSummary: provider.settings.summaryText
+    assistantSummary: resolveReasoningSummarySetting(provider.settings.summaryText, reasoningEndpointType)
   })
   const nativeFileSupport = resolveNativeFileSupport(provider, model, aiSdkProviderId)
 
@@ -161,6 +161,8 @@ export function resolveReasoningMaxTokens(
 
   return model.maxOutputTokens
 }
+
+export { resolveReasoningSummarySetting } from '../../../utils/reasoningSerializers'
 
 async function resolveSdkConfig(provider: Provider, model: Model, apiKeyOverride?: string): Promise<SdkConfig> {
   return {

@@ -61,6 +61,10 @@ export function serializeError(error: unknown): SerializedError {
     if ('response' in e) serialized.response = toSerializable(e.response)
     if ('usage' in e) serialized.usage = toSerializable(e.usage)
     if ('finishReason' in e) serialized.finishReason = (e.finishReason as string) ?? null
+    if ('rawFinishReason' in e) serialized.rawFinishReason = (e.rawFinishReason as string) ?? null
+    if ('responseStatus' in e) serialized.responseStatus = (e.responseStatus as string) ?? null
+    if ('incompleteDetails' in e) serialized.incompleteDetails = toSerializable(e.incompleteDetails)
+    if ('providerError' in e) serialized.providerError = toSerializable(e.providerError)
     if ('modelId' in e) serialized.modelId = e.modelId as string
     if ('modelType' in e) serialized.modelType = e.modelType as string
     if ('providerId' in e) serialized.providerId = e.providerId as string

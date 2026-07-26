@@ -390,6 +390,34 @@ describe('PersistenceListener + TemporaryChatBackend', () => {
     expect(parts.some((p) => p.type === 'data-error')).toBe(true)
   })
 
+  it('persists partial output and abnormal Responses terminal details together', async () => {
+    const listener = makeListener()
+    const err: SerializedError = {
+      name: 'FinishReasonError',
+      message: 'output limit',
+      stack: null,
+      finishReason: 'length',
+      rawFinishReason: 'max_output_tokens',
+      responseStatus: 'incomplete',
+      incompleteDetails: { reason: 'max_output_tokens' },
+      i18nKey: 'response_max_output_tokens'
+    }
+    const finalMessage = {
+      id: 'partial-id',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'partial answer' }]
+    } as unknown as CherryUIMessage
+
+    await listener.onError({ status: 'error', error: err, finalMessage })
+
+    const payload = appendMessageMock.mock.calls[0][1]
+    expect(payload.status).toBe('error')
+    expect(payload.data.parts).toEqual([
+      { type: 'text', text: 'partial answer' },
+      { type: 'data-error', data: err }
+    ])
+  })
+
   it('terminalizes interrupted reasoning before composing error stats', async () => {
     const listener = makeListener()
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(9000)

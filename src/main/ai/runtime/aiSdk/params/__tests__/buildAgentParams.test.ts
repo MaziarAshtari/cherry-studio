@@ -36,6 +36,7 @@ const {
   composeStopWhen,
   resolveKnowledgeBaseIds,
   resolveReasoningMaxTokens,
+  resolveReasoningSummarySetting,
   resolveToolCallLimit,
   resolveTools
 } = await import('../buildAgentParams')
@@ -115,6 +116,20 @@ describe('resolveReasoningMaxTokens', () => {
     const assistant = makeAssistant({ settings: { enableMaxTokens: true, maxTokens: 16_000 } })
 
     expect(resolveReasoningMaxTokens(32_000, assistant, model)).toBe(32_000)
+  })
+})
+
+describe('resolveReasoningSummarySetting', () => {
+  it('defaults an absent OpenAI Responses setting to auto', () => {
+    expect(resolveReasoningSummarySetting(undefined, ENDPOINT_TYPE.OPENAI_RESPONSES)).toBe('auto')
+  })
+
+  it('preserves an explicit OpenAI Responses opt-out', () => {
+    expect(resolveReasoningSummarySetting(null, ENDPOINT_TYPE.OPENAI_RESPONSES)).toBeNull()
+  })
+
+  it('does not add a summary default to other endpoint families', () => {
+    expect(resolveReasoningSummarySetting(undefined, ENDPOINT_TYPE.OPENAI_CHAT_COMPLETIONS)).toBeUndefined()
   })
 })
 

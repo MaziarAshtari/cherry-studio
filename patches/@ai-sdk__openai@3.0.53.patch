@@ -1,5 +1,5 @@
 diff --git a/dist/index.js b/dist/index.js
-index 1c78d6f..a81c976 100644
+index 1c78d6f13caed5cbfa034d86f5e51729d540a1ba..74f4a4c6f7fbada2a80f596ab5fb1feffa121107 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -1753,13 +1753,15 @@ var modelMaxImagesPerCall = {
@@ -19,8 +19,258 @@ index 1c78d6f..a81c976 100644
  ];
  function hasDefaultResponseFormat(modelId) {
    return defaultResponseFormatPrefixes.some(
+@@ -3303,6 +3305,11 @@ var openaiResponsesChunkSchema = (0, import_provider_utils26.lazySchema)(
+           })
+         ).nullish()
+       }),
++      import_v421.z.object({
++        type: import_v421.z.literal("response.output_text.done"),
++        item_id: import_v421.z.string(),
++        text: import_v421.z.string()
++      }),
+       import_v421.z.object({
+         type: import_v421.z.enum(["response.completed", "response.incomplete"]),
+         response: import_v421.z.object({
+@@ -3317,7 +3324,7 @@ var openaiResponsesChunkSchema = (0, import_provider_utils26.lazySchema)(
+         })
+       }),
+       import_v421.z.object({
+-        type: import_v421.z.literal("response.failed"),
++        type: import_v421.z.enum(["response.failed", "response.cancelled"]),
+         response: import_v421.z.object({
+           error: import_v421.z.object({
+             code: import_v421.z.string().nullish(),
+@@ -3778,11 +3785,29 @@ var openaiResponsesChunkSchema = (0, import_provider_utils26.lazySchema)(
+         summary_index: import_v421.z.number(),
+         delta: import_v421.z.string()
+       }),
++      import_v421.z.object({
++        type: import_v421.z.literal("response.reasoning_summary_text.done"),
++        item_id: import_v421.z.string(),
++        summary_index: import_v421.z.number(),
++        text: import_v421.z.string()
++      }),
+       import_v421.z.object({
+         type: import_v421.z.literal("response.reasoning_summary_part.done"),
+         item_id: import_v421.z.string(),
+         summary_index: import_v421.z.number()
+       }),
++      import_v421.z.object({
++        type: import_v421.z.literal("response.reasoning_text.delta"),
++        item_id: import_v421.z.string(),
++        content_index: import_v421.z.number(),
++        delta: import_v421.z.string()
++      }),
++      import_v421.z.object({
++        type: import_v421.z.literal("response.reasoning_text.done"),
++        item_id: import_v421.z.string(),
++        content_index: import_v421.z.number(),
++        text: import_v421.z.string()
++      }),
+       import_v421.z.object({
+         type: import_v421.z.literal("response.apply_patch_call_operation_diff.delta"),
+         item_id: import_v421.z.string(),
+@@ -3825,6 +3850,7 @@ var openaiResponsesResponseSchema = (0, import_provider_utils26.lazySchema)(
+         param: import_v421.z.string().nullish(),
+         code: import_v421.z.string()
+       }).nullish(),
++      status: import_v421.z.enum(["completed", "incomplete", "failed", "cancelled"]).optional(),
+       model: import_v421.z.string().optional(),
+       output: import_v421.z.array(
+         import_v421.z.discriminatedUnion("type", [
+@@ -5326,22 +5352,27 @@ var OpenAIResponsesLanguageModel = class {
+         }
+       }
+     }
++    const responseStatus = response.status != null ? response.status : response.incomplete_details != null ? "incomplete" : "completed";
++    const rawFinishReason = response.incomplete_details != null ? response.incomplete_details.reason : responseStatus === "failed" || responseStatus === "cancelled" ? responseStatus : responseStatus === "incomplete" ? "incomplete" : void 0;
+     const providerMetadata = {
+       [providerOptionsName]: {
+         responseId: response.id,
+         ...logprobs.length > 0 ? { logprobs } : {},
+-        ...typeof response.service_tier === "string" ? { serviceTier: response.service_tier } : {}
++        ...typeof response.service_tier === "string" ? { serviceTier: response.service_tier } : {},
++        responseStatus,
++        incompleteDetails: response.incomplete_details != null ? response.incomplete_details : null,
++        responseError: response.error != null ? response.error : null
+       }
+     };
+     const usage = response.usage;
+     return {
+       content,
+       finishReason: {
+-        unified: mapOpenAIResponseFinishReason({
+-          finishReason: (_z = response.incomplete_details) == null ? void 0 : _z.reason,
++        unified: responseStatus === "failed" ? "error" : responseStatus === "cancelled" || responseStatus === "incomplete" && response.incomplete_details == null ? "other" : mapOpenAIResponseFinishReason({
++          finishReason: response.incomplete_details == null ? void 0 : response.incomplete_details.reason,
+           hasFunctionCall
+         }),
+-        raw: (_B = (_A = response.incomplete_details) == null ? void 0 : _A.reason) != null ? _B : void 0
++        raw: rawFinishReason
+       },
+       usage: convertOpenAIResponsesUsage(usage),
+       request: { body },
+@@ -5393,11 +5424,16 @@ var OpenAIResponsesLanguageModel = class {
+     let usage = void 0;
+     const logprobs = [];
+     let responseId = null;
++    let responseStatus;
++    let incompleteDetails;
++    let responseError;
+     const ongoingToolCalls = {};
+     const ongoingAnnotations = [];
+     let activeMessagePhase;
+     let hasFunctionCall = false;
+     const activeReasoning = {};
++    const streamedContent = {};
++    const startedReasoningText = /* @__PURE__ */ new Set();
+     let serviceTier;
+     const hostedToolSearchCallIds = [];
+     return {
+@@ -6055,6 +6091,8 @@ var OpenAIResponsesLanguageModel = class {
+                 modelId: value.response.model
+               });
+             } else if (isTextDeltaChunk(value)) {
++              const textKey = `text:${value.item_id}`;
++              streamedContent[textKey] = (streamedContent[textKey] != null ? streamedContent[textKey] : "") + value.delta;
+               controller.enqueue({
+                 type: "text-delta",
+                 id: value.item_id,
+@@ -6063,6 +6101,9 @@ var OpenAIResponsesLanguageModel = class {
+               if (((_s = (_r = options.providerOptions) == null ? void 0 : _r[providerOptionsName]) == null ? void 0 : _s.logprobs) && value.logprobs) {
+                 logprobs.push(value.logprobs);
+               }
++            } else if (value.type === "response.output_text.done") {
++              const delta = getDoneDelta(streamedContent, `text:${value.item_id}`, value.text);
++              if (delta) controller.enqueue({ type: "text-delta", id: value.item_id, delta });
+             } else if (value.type === "response.reasoning_summary_part.added") {
+               if (value.summary_index > 0) {
+                 const activeReasoningPart = activeReasoning[value.item_id];
+@@ -6095,9 +6136,11 @@ var OpenAIResponsesLanguageModel = class {
+                 });
+               }
+             } else if (value.type === "response.reasoning_summary_text.delta") {
++              const reasoningId = `${value.item_id}:${value.summary_index}`;
++              streamedContent[reasoningId] = (streamedContent[reasoningId] != null ? streamedContent[reasoningId] : "") + value.delta;
+               controller.enqueue({
+                 type: "reasoning-delta",
+-                id: `${value.item_id}:${value.summary_index}`,
++                id: reasoningId,
+                 delta: value.delta,
+                 providerMetadata: {
+                   [providerOptionsName]: {
+@@ -6105,6 +6148,15 @@ var OpenAIResponsesLanguageModel = class {
+                   }
+                 }
+               });
++            } else if (value.type === "response.reasoning_summary_text.done") {
++              const reasoningId = `${value.item_id}:${value.summary_index}`;
++              const delta = getDoneDelta(streamedContent, reasoningId, value.text);
++              if (delta) controller.enqueue({
++                type: "reasoning-delta",
++                id: reasoningId,
++                delta,
++                providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++              });
+             } else if (value.type === "response.reasoning_summary_part.done") {
+               if (store) {
+                 controller.enqueue({
+@@ -6120,7 +6172,38 @@ var OpenAIResponsesLanguageModel = class {
+               } else {
+                 activeReasoning[value.item_id].summaryParts[value.summary_index] = "can-conclude";
+               }
++            } else if (value.type === "response.reasoning_text.delta" || value.type === "response.reasoning_text.done") {
++              const reasoningId = `${value.item_id}:reasoning:${value.content_index}`;
++              if (!startedReasoningText.has(reasoningId)) {
++                startedReasoningText.add(reasoningId);
++                controller.enqueue({
++                  type: "reasoning-start",
++                  id: reasoningId,
++                  providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++                });
++              }
++              const delta = value.type === "response.reasoning_text.delta" ? value.delta : getDoneDelta(streamedContent, reasoningId, value.text);
++              if (value.type === "response.reasoning_text.delta") {
++                streamedContent[reasoningId] = (streamedContent[reasoningId] != null ? streamedContent[reasoningId] : "") + delta;
++              }
++              if (delta) controller.enqueue({
++                type: "reasoning-delta",
++                id: reasoningId,
++                delta,
++                providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++              });
++              if (value.type === "response.reasoning_text.done") {
++                controller.enqueue({
++                  type: "reasoning-end",
++                  id: reasoningId,
++                  providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++                });
++                startedReasoningText.delete(reasoningId);
++              }
+             } else if (isResponseFinishedChunk(value)) {
++              responseStatus = value.type === "response.completed" ? "completed" : "incomplete";
++              incompleteDetails = value.response.incomplete_details != null ? value.response.incomplete_details : null;
++              responseError = null;
+               finishReason = {
+                 unified: mapOpenAIResponseFinishReason({
+                   finishReason: (_v = value.response.incomplete_details) == null ? void 0 : _v.reason,
+@@ -6133,15 +6216,19 @@ var OpenAIResponsesLanguageModel = class {
+                 serviceTier = value.response.service_tier;
+               }
+             } else if (isResponseFailedChunk(value)) {
++              responseStatus = value.type === "response.cancelled" ? "cancelled" : "failed";
++              incompleteDetails = value.response.incomplete_details != null ? value.response.incomplete_details : null;
++              responseError = value.response.error != null ? value.response.error : null;
+               const incompleteReason = (_y = value.response.incomplete_details) == null ? void 0 : _y.reason;
+               finishReason = {
+-                unified: incompleteReason ? mapOpenAIResponseFinishReason({
++                unified: value.type === "response.cancelled" ? "other" : incompleteReason ? mapOpenAIResponseFinishReason({
+                   finishReason: incompleteReason,
+                   hasFunctionCall
+                 }) : "error",
+-                raw: incompleteReason != null ? incompleteReason : "error"
++                raw: incompleteReason != null ? incompleteReason : value.type === "response.cancelled" ? "cancelled" : "error"
+               };
+               usage = (_z = value.response.usage) != null ? _z : void 0;
++              if (typeof value.response.service_tier === "string") serviceTier = value.response.service_tier;
+             } else if (isResponseAnnotationAddedChunk(value)) {
+               ongoingAnnotations.push(value.annotation);
+               if (value.annotation.type === "url_citation") {
+@@ -6210,7 +6297,10 @@ var OpenAIResponsesLanguageModel = class {
+               [providerOptionsName]: {
+                 responseId,
+                 ...logprobs.length > 0 ? { logprobs } : {},
+-                ...serviceTier !== void 0 ? { serviceTier } : {}
++                ...serviceTier !== void 0 ? { serviceTier } : {},
++                ...responseStatus !== void 0 ? { responseStatus } : {},
++                ...incompleteDetails !== void 0 ? { incompleteDetails } : {},
++                ...responseError !== void 0 ? { responseError } : {}
+               }
+             };
+             controller.enqueue({
+@@ -6227,6 +6317,11 @@ var OpenAIResponsesLanguageModel = class {
+     };
+   }
+ };
++function getDoneDelta(streamedContent, key, completedText) {
++  const streamedText = streamedContent[key] != null ? streamedContent[key] : "";
++  streamedContent[key] = completedText;
++  return completedText.startsWith(streamedText) ? completedText.slice(streamedText.length) : "";
++}
+ function isTextDeltaChunk(chunk) {
+   return chunk.type === "response.output_text.delta";
+ }
+@@ -6237,7 +6332,7 @@ function isResponseFinishedChunk(chunk) {
+   return chunk.type === "response.completed" || chunk.type === "response.incomplete";
+ }
+ function isResponseFailedChunk(chunk) {
+-  return chunk.type === "response.failed";
++  return chunk.type === "response.failed" || chunk.type === "response.cancelled";
+ }
+ function isResponseCreatedChunk(chunk) {
+   return chunk.type === "response.created";
 diff --git a/dist/index.mjs b/dist/index.mjs
-index 3dee885..441a6af 100644
+index 3dee8855a0cff4c2d5bef4ff1cb2a92a48bd8c4f..f62363f26a3b3923eae6067e8a0750205d7f7fb5 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
 @@ -1768,13 +1768,15 @@ var modelMaxImagesPerCall = {
@@ -40,8 +290,258 @@ index 3dee885..441a6af 100644
  ];
  function hasDefaultResponseFormat(modelId) {
    return defaultResponseFormatPrefixes.some(
+@@ -3380,6 +3382,11 @@ var openaiResponsesChunkSchema = lazySchema19(
+           })
+         ).nullish()
+       }),
++      z21.object({
++        type: z21.literal("response.output_text.done"),
++        item_id: z21.string(),
++        text: z21.string()
++      }),
+       z21.object({
+         type: z21.enum(["response.completed", "response.incomplete"]),
+         response: z21.object({
+@@ -3394,7 +3401,7 @@ var openaiResponsesChunkSchema = lazySchema19(
+         })
+       }),
+       z21.object({
+-        type: z21.literal("response.failed"),
++        type: z21.enum(["response.failed", "response.cancelled"]),
+         response: z21.object({
+           error: z21.object({
+             code: z21.string().nullish(),
+@@ -3855,11 +3862,29 @@ var openaiResponsesChunkSchema = lazySchema19(
+         summary_index: z21.number(),
+         delta: z21.string()
+       }),
++      z21.object({
++        type: z21.literal("response.reasoning_summary_text.done"),
++        item_id: z21.string(),
++        summary_index: z21.number(),
++        text: z21.string()
++      }),
+       z21.object({
+         type: z21.literal("response.reasoning_summary_part.done"),
+         item_id: z21.string(),
+         summary_index: z21.number()
+       }),
++      z21.object({
++        type: z21.literal("response.reasoning_text.delta"),
++        item_id: z21.string(),
++        content_index: z21.number(),
++        delta: z21.string()
++      }),
++      z21.object({
++        type: z21.literal("response.reasoning_text.done"),
++        item_id: z21.string(),
++        content_index: z21.number(),
++        text: z21.string()
++      }),
+       z21.object({
+         type: z21.literal("response.apply_patch_call_operation_diff.delta"),
+         item_id: z21.string(),
+@@ -3902,6 +3927,7 @@ var openaiResponsesResponseSchema = lazySchema19(
+         param: z21.string().nullish(),
+         code: z21.string()
+       }).nullish(),
++      status: z21.enum(["completed", "incomplete", "failed", "cancelled"]).optional(),
+       model: z21.string().optional(),
+       output: z21.array(
+         z21.discriminatedUnion("type", [
+@@ -5405,22 +5431,27 @@ var OpenAIResponsesLanguageModel = class {
+         }
+       }
+     }
++    const responseStatus = response.status != null ? response.status : response.incomplete_details != null ? "incomplete" : "completed";
++    const rawFinishReason = response.incomplete_details != null ? response.incomplete_details.reason : responseStatus === "failed" || responseStatus === "cancelled" ? responseStatus : responseStatus === "incomplete" ? "incomplete" : void 0;
+     const providerMetadata = {
+       [providerOptionsName]: {
+         responseId: response.id,
+         ...logprobs.length > 0 ? { logprobs } : {},
+-        ...typeof response.service_tier === "string" ? { serviceTier: response.service_tier } : {}
++        ...typeof response.service_tier === "string" ? { serviceTier: response.service_tier } : {},
++        responseStatus,
++        incompleteDetails: response.incomplete_details != null ? response.incomplete_details : null,
++        responseError: response.error != null ? response.error : null
+       }
+     };
+     const usage = response.usage;
+     return {
+       content,
+       finishReason: {
+-        unified: mapOpenAIResponseFinishReason({
+-          finishReason: (_z = response.incomplete_details) == null ? void 0 : _z.reason,
++        unified: responseStatus === "failed" ? "error" : responseStatus === "cancelled" || responseStatus === "incomplete" && response.incomplete_details == null ? "other" : mapOpenAIResponseFinishReason({
++          finishReason: response.incomplete_details == null ? void 0 : response.incomplete_details.reason,
+           hasFunctionCall
+         }),
+-        raw: (_B = (_A = response.incomplete_details) == null ? void 0 : _A.reason) != null ? _B : void 0
++        raw: rawFinishReason
+       },
+       usage: convertOpenAIResponsesUsage(usage),
+       request: { body },
+@@ -5472,11 +5503,16 @@ var OpenAIResponsesLanguageModel = class {
+     let usage = void 0;
+     const logprobs = [];
+     let responseId = null;
++    let responseStatus;
++    let incompleteDetails;
++    let responseError;
+     const ongoingToolCalls = {};
+     const ongoingAnnotations = [];
+     let activeMessagePhase;
+     let hasFunctionCall = false;
+     const activeReasoning = {};
++    const streamedContent = {};
++    const startedReasoningText = /* @__PURE__ */ new Set();
+     let serviceTier;
+     const hostedToolSearchCallIds = [];
+     return {
+@@ -6134,6 +6170,8 @@ var OpenAIResponsesLanguageModel = class {
+                 modelId: value.response.model
+               });
+             } else if (isTextDeltaChunk(value)) {
++              const textKey = `text:${value.item_id}`;
++              streamedContent[textKey] = (streamedContent[textKey] != null ? streamedContent[textKey] : "") + value.delta;
+               controller.enqueue({
+                 type: "text-delta",
+                 id: value.item_id,
+@@ -6142,6 +6180,9 @@ var OpenAIResponsesLanguageModel = class {
+               if (((_s = (_r = options.providerOptions) == null ? void 0 : _r[providerOptionsName]) == null ? void 0 : _s.logprobs) && value.logprobs) {
+                 logprobs.push(value.logprobs);
+               }
++            } else if (value.type === "response.output_text.done") {
++              const delta = getDoneDelta(streamedContent, `text:${value.item_id}`, value.text);
++              if (delta) controller.enqueue({ type: "text-delta", id: value.item_id, delta });
+             } else if (value.type === "response.reasoning_summary_part.added") {
+               if (value.summary_index > 0) {
+                 const activeReasoningPart = activeReasoning[value.item_id];
+@@ -6174,9 +6215,11 @@ var OpenAIResponsesLanguageModel = class {
+                 });
+               }
+             } else if (value.type === "response.reasoning_summary_text.delta") {
++              const reasoningId = `${value.item_id}:${value.summary_index}`;
++              streamedContent[reasoningId] = (streamedContent[reasoningId] != null ? streamedContent[reasoningId] : "") + value.delta;
+               controller.enqueue({
+                 type: "reasoning-delta",
+-                id: `${value.item_id}:${value.summary_index}`,
++                id: reasoningId,
+                 delta: value.delta,
+                 providerMetadata: {
+                   [providerOptionsName]: {
+@@ -6184,6 +6227,15 @@ var OpenAIResponsesLanguageModel = class {
+                   }
+                 }
+               });
++            } else if (value.type === "response.reasoning_summary_text.done") {
++              const reasoningId = `${value.item_id}:${value.summary_index}`;
++              const delta = getDoneDelta(streamedContent, reasoningId, value.text);
++              if (delta) controller.enqueue({
++                type: "reasoning-delta",
++                id: reasoningId,
++                delta,
++                providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++              });
+             } else if (value.type === "response.reasoning_summary_part.done") {
+               if (store) {
+                 controller.enqueue({
+@@ -6199,7 +6251,38 @@ var OpenAIResponsesLanguageModel = class {
+               } else {
+                 activeReasoning[value.item_id].summaryParts[value.summary_index] = "can-conclude";
+               }
++            } else if (value.type === "response.reasoning_text.delta" || value.type === "response.reasoning_text.done") {
++              const reasoningId = `${value.item_id}:reasoning:${value.content_index}`;
++              if (!startedReasoningText.has(reasoningId)) {
++                startedReasoningText.add(reasoningId);
++                controller.enqueue({
++                  type: "reasoning-start",
++                  id: reasoningId,
++                  providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++                });
++              }
++              const delta = value.type === "response.reasoning_text.delta" ? value.delta : getDoneDelta(streamedContent, reasoningId, value.text);
++              if (value.type === "response.reasoning_text.delta") {
++                streamedContent[reasoningId] = (streamedContent[reasoningId] != null ? streamedContent[reasoningId] : "") + delta;
++              }
++              if (delta) controller.enqueue({
++                type: "reasoning-delta",
++                id: reasoningId,
++                delta,
++                providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++              });
++              if (value.type === "response.reasoning_text.done") {
++                controller.enqueue({
++                  type: "reasoning-end",
++                  id: reasoningId,
++                  providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++                });
++                startedReasoningText.delete(reasoningId);
++              }
+             } else if (isResponseFinishedChunk(value)) {
++              responseStatus = value.type === "response.completed" ? "completed" : "incomplete";
++              incompleteDetails = value.response.incomplete_details != null ? value.response.incomplete_details : null;
++              responseError = null;
+               finishReason = {
+                 unified: mapOpenAIResponseFinishReason({
+                   finishReason: (_v = value.response.incomplete_details) == null ? void 0 : _v.reason,
+@@ -6212,15 +6295,19 @@ var OpenAIResponsesLanguageModel = class {
+                 serviceTier = value.response.service_tier;
+               }
+             } else if (isResponseFailedChunk(value)) {
++              responseStatus = value.type === "response.cancelled" ? "cancelled" : "failed";
++              incompleteDetails = value.response.incomplete_details != null ? value.response.incomplete_details : null;
++              responseError = value.response.error != null ? value.response.error : null;
+               const incompleteReason = (_y = value.response.incomplete_details) == null ? void 0 : _y.reason;
+               finishReason = {
+-                unified: incompleteReason ? mapOpenAIResponseFinishReason({
++                unified: value.type === "response.cancelled" ? "other" : incompleteReason ? mapOpenAIResponseFinishReason({
+                   finishReason: incompleteReason,
+                   hasFunctionCall
+                 }) : "error",
+-                raw: incompleteReason != null ? incompleteReason : "error"
++                raw: incompleteReason != null ? incompleteReason : value.type === "response.cancelled" ? "cancelled" : "error"
+               };
+               usage = (_z = value.response.usage) != null ? _z : void 0;
++              if (typeof value.response.service_tier === "string") serviceTier = value.response.service_tier;
+             } else if (isResponseAnnotationAddedChunk(value)) {
+               ongoingAnnotations.push(value.annotation);
+               if (value.annotation.type === "url_citation") {
+@@ -6289,7 +6376,10 @@ var OpenAIResponsesLanguageModel = class {
+               [providerOptionsName]: {
+                 responseId,
+                 ...logprobs.length > 0 ? { logprobs } : {},
+-                ...serviceTier !== void 0 ? { serviceTier } : {}
++                ...serviceTier !== void 0 ? { serviceTier } : {},
++                ...responseStatus !== void 0 ? { responseStatus } : {},
++                ...incompleteDetails !== void 0 ? { incompleteDetails } : {},
++                ...responseError !== void 0 ? { responseError } : {}
+               }
+             };
+             controller.enqueue({
+@@ -6306,6 +6396,11 @@ var OpenAIResponsesLanguageModel = class {
+     };
+   }
+ };
++function getDoneDelta(streamedContent, key, completedText) {
++  const streamedText = streamedContent[key] != null ? streamedContent[key] : "";
++  streamedContent[key] = completedText;
++  return completedText.startsWith(streamedText) ? completedText.slice(streamedText.length) : "";
++}
+ function isTextDeltaChunk(chunk) {
+   return chunk.type === "response.output_text.delta";
+ }
+@@ -6316,7 +6411,7 @@ function isResponseFinishedChunk(chunk) {
+   return chunk.type === "response.completed" || chunk.type === "response.incomplete";
+ }
+ function isResponseFailedChunk(chunk) {
+-  return chunk.type === "response.failed";
++  return chunk.type === "response.failed" || chunk.type === "response.cancelled";
+ }
+ function isResponseCreatedChunk(chunk) {
+   return chunk.type === "response.created";
 diff --git a/dist/internal/index.js b/dist/internal/index.js
-index 27527ce..b359aa3 100644
+index 27527ce4b6c232e26c4bed988292d8fdd5dbbb5f..0f643e4a9847a5454748069a0d064753c114b688 100644
 --- a/dist/internal/index.js
 +++ b/dist/internal/index.js
 @@ -1780,13 +1780,15 @@ var modelMaxImagesPerCall = {
@@ -61,8 +561,258 @@ index 27527ce..b359aa3 100644
  ];
  function hasDefaultResponseFormat(modelId) {
    return defaultResponseFormatPrefixes.some(
+@@ -3245,6 +3247,11 @@ var openaiResponsesChunkSchema = (0, import_provider_utils24.lazySchema)(
+           })
+         ).nullish()
+       }),
++      import_v417.z.object({
++        type: import_v417.z.literal("response.output_text.done"),
++        item_id: import_v417.z.string(),
++        text: import_v417.z.string()
++      }),
+       import_v417.z.object({
+         type: import_v417.z.enum(["response.completed", "response.incomplete"]),
+         response: import_v417.z.object({
+@@ -3259,7 +3266,7 @@ var openaiResponsesChunkSchema = (0, import_provider_utils24.lazySchema)(
+         })
+       }),
+       import_v417.z.object({
+-        type: import_v417.z.literal("response.failed"),
++        type: import_v417.z.enum(["response.failed", "response.cancelled"]),
+         response: import_v417.z.object({
+           error: import_v417.z.object({
+             code: import_v417.z.string().nullish(),
+@@ -3720,11 +3727,29 @@ var openaiResponsesChunkSchema = (0, import_provider_utils24.lazySchema)(
+         summary_index: import_v417.z.number(),
+         delta: import_v417.z.string()
+       }),
++      import_v417.z.object({
++        type: import_v417.z.literal("response.reasoning_summary_text.done"),
++        item_id: import_v417.z.string(),
++        summary_index: import_v417.z.number(),
++        text: import_v417.z.string()
++      }),
+       import_v417.z.object({
+         type: import_v417.z.literal("response.reasoning_summary_part.done"),
+         item_id: import_v417.z.string(),
+         summary_index: import_v417.z.number()
+       }),
++      import_v417.z.object({
++        type: import_v417.z.literal("response.reasoning_text.delta"),
++        item_id: import_v417.z.string(),
++        content_index: import_v417.z.number(),
++        delta: import_v417.z.string()
++      }),
++      import_v417.z.object({
++        type: import_v417.z.literal("response.reasoning_text.done"),
++        item_id: import_v417.z.string(),
++        content_index: import_v417.z.number(),
++        text: import_v417.z.string()
++      }),
+       import_v417.z.object({
+         type: import_v417.z.literal("response.apply_patch_call_operation_diff.delta"),
+         item_id: import_v417.z.string(),
+@@ -3767,6 +3792,7 @@ var openaiResponsesResponseSchema = (0, import_provider_utils24.lazySchema)(
+         param: import_v417.z.string().nullish(),
+         code: import_v417.z.string()
+       }).nullish(),
++      status: import_v417.z.enum(["completed", "incomplete", "failed", "cancelled"]).optional(),
+       model: import_v417.z.string().optional(),
+       output: import_v417.z.array(
+         import_v417.z.discriminatedUnion("type", [
+@@ -5587,22 +5613,27 @@ var OpenAIResponsesLanguageModel = class {
+         }
+       }
+     }
++    const responseStatus = response.status != null ? response.status : response.incomplete_details != null ? "incomplete" : "completed";
++    const rawFinishReason = response.incomplete_details != null ? response.incomplete_details.reason : responseStatus === "failed" || responseStatus === "cancelled" ? responseStatus : responseStatus === "incomplete" ? "incomplete" : void 0;
+     const providerMetadata = {
+       [providerOptionsName]: {
+         responseId: response.id,
+         ...logprobs.length > 0 ? { logprobs } : {},
+-        ...typeof response.service_tier === "string" ? { serviceTier: response.service_tier } : {}
++        ...typeof response.service_tier === "string" ? { serviceTier: response.service_tier } : {},
++        responseStatus,
++        incompleteDetails: response.incomplete_details != null ? response.incomplete_details : null,
++        responseError: response.error != null ? response.error : null
+       }
+     };
+     const usage = response.usage;
+     return {
+       content,
+       finishReason: {
+-        unified: mapOpenAIResponseFinishReason({
+-          finishReason: (_z = response.incomplete_details) == null ? void 0 : _z.reason,
++        unified: responseStatus === "failed" ? "error" : responseStatus === "cancelled" || responseStatus === "incomplete" && response.incomplete_details == null ? "other" : mapOpenAIResponseFinishReason({
++          finishReason: response.incomplete_details == null ? void 0 : response.incomplete_details.reason,
+           hasFunctionCall
+         }),
+-        raw: (_B = (_A = response.incomplete_details) == null ? void 0 : _A.reason) != null ? _B : void 0
++        raw: rawFinishReason
+       },
+       usage: convertOpenAIResponsesUsage(usage),
+       request: { body },
+@@ -5654,11 +5685,16 @@ var OpenAIResponsesLanguageModel = class {
+     let usage = void 0;
+     const logprobs = [];
+     let responseId = null;
++    let responseStatus;
++    let incompleteDetails;
++    let responseError;
+     const ongoingToolCalls = {};
+     const ongoingAnnotations = [];
+     let activeMessagePhase;
+     let hasFunctionCall = false;
+     const activeReasoning = {};
++    const streamedContent = {};
++    const startedReasoningText = /* @__PURE__ */ new Set();
+     let serviceTier;
+     const hostedToolSearchCallIds = [];
+     return {
+@@ -6316,6 +6352,8 @@ var OpenAIResponsesLanguageModel = class {
+                 modelId: value.response.model
+               });
+             } else if (isTextDeltaChunk(value)) {
++              const textKey = `text:${value.item_id}`;
++              streamedContent[textKey] = (streamedContent[textKey] != null ? streamedContent[textKey] : "") + value.delta;
+               controller.enqueue({
+                 type: "text-delta",
+                 id: value.item_id,
+@@ -6324,6 +6362,9 @@ var OpenAIResponsesLanguageModel = class {
+               if (((_s = (_r = options.providerOptions) == null ? void 0 : _r[providerOptionsName]) == null ? void 0 : _s.logprobs) && value.logprobs) {
+                 logprobs.push(value.logprobs);
+               }
++            } else if (value.type === "response.output_text.done") {
++              const delta = getDoneDelta(streamedContent, `text:${value.item_id}`, value.text);
++              if (delta) controller.enqueue({ type: "text-delta", id: value.item_id, delta });
+             } else if (value.type === "response.reasoning_summary_part.added") {
+               if (value.summary_index > 0) {
+                 const activeReasoningPart = activeReasoning[value.item_id];
+@@ -6356,9 +6397,11 @@ var OpenAIResponsesLanguageModel = class {
+                 });
+               }
+             } else if (value.type === "response.reasoning_summary_text.delta") {
++              const reasoningId = `${value.item_id}:${value.summary_index}`;
++              streamedContent[reasoningId] = (streamedContent[reasoningId] != null ? streamedContent[reasoningId] : "") + value.delta;
+               controller.enqueue({
+                 type: "reasoning-delta",
+-                id: `${value.item_id}:${value.summary_index}`,
++                id: reasoningId,
+                 delta: value.delta,
+                 providerMetadata: {
+                   [providerOptionsName]: {
+@@ -6366,6 +6409,15 @@ var OpenAIResponsesLanguageModel = class {
+                   }
+                 }
+               });
++            } else if (value.type === "response.reasoning_summary_text.done") {
++              const reasoningId = `${value.item_id}:${value.summary_index}`;
++              const delta = getDoneDelta(streamedContent, reasoningId, value.text);
++              if (delta) controller.enqueue({
++                type: "reasoning-delta",
++                id: reasoningId,
++                delta,
++                providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++              });
+             } else if (value.type === "response.reasoning_summary_part.done") {
+               if (store) {
+                 controller.enqueue({
+@@ -6381,7 +6433,38 @@ var OpenAIResponsesLanguageModel = class {
+               } else {
+                 activeReasoning[value.item_id].summaryParts[value.summary_index] = "can-conclude";
+               }
++            } else if (value.type === "response.reasoning_text.delta" || value.type === "response.reasoning_text.done") {
++              const reasoningId = `${value.item_id}:reasoning:${value.content_index}`;
++              if (!startedReasoningText.has(reasoningId)) {
++                startedReasoningText.add(reasoningId);
++                controller.enqueue({
++                  type: "reasoning-start",
++                  id: reasoningId,
++                  providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++                });
++              }
++              const delta = value.type === "response.reasoning_text.delta" ? value.delta : getDoneDelta(streamedContent, reasoningId, value.text);
++              if (value.type === "response.reasoning_text.delta") {
++                streamedContent[reasoningId] = (streamedContent[reasoningId] != null ? streamedContent[reasoningId] : "") + delta;
++              }
++              if (delta) controller.enqueue({
++                type: "reasoning-delta",
++                id: reasoningId,
++                delta,
++                providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++              });
++              if (value.type === "response.reasoning_text.done") {
++                controller.enqueue({
++                  type: "reasoning-end",
++                  id: reasoningId,
++                  providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++                });
++                startedReasoningText.delete(reasoningId);
++              }
+             } else if (isResponseFinishedChunk(value)) {
++              responseStatus = value.type === "response.completed" ? "completed" : "incomplete";
++              incompleteDetails = value.response.incomplete_details != null ? value.response.incomplete_details : null;
++              responseError = null;
+               finishReason = {
+                 unified: mapOpenAIResponseFinishReason({
+                   finishReason: (_v = value.response.incomplete_details) == null ? void 0 : _v.reason,
+@@ -6394,15 +6477,19 @@ var OpenAIResponsesLanguageModel = class {
+                 serviceTier = value.response.service_tier;
+               }
+             } else if (isResponseFailedChunk(value)) {
++              responseStatus = value.type === "response.cancelled" ? "cancelled" : "failed";
++              incompleteDetails = value.response.incomplete_details != null ? value.response.incomplete_details : null;
++              responseError = value.response.error != null ? value.response.error : null;
+               const incompleteReason = (_y = value.response.incomplete_details) == null ? void 0 : _y.reason;
+               finishReason = {
+-                unified: incompleteReason ? mapOpenAIResponseFinishReason({
++                unified: value.type === "response.cancelled" ? "other" : incompleteReason ? mapOpenAIResponseFinishReason({
+                   finishReason: incompleteReason,
+                   hasFunctionCall
+                 }) : "error",
+-                raw: incompleteReason != null ? incompleteReason : "error"
++                raw: incompleteReason != null ? incompleteReason : value.type === "response.cancelled" ? "cancelled" : "error"
+               };
+               usage = (_z = value.response.usage) != null ? _z : void 0;
++              if (typeof value.response.service_tier === "string") serviceTier = value.response.service_tier;
+             } else if (isResponseAnnotationAddedChunk(value)) {
+               ongoingAnnotations.push(value.annotation);
+               if (value.annotation.type === "url_citation") {
+@@ -6471,7 +6558,10 @@ var OpenAIResponsesLanguageModel = class {
+               [providerOptionsName]: {
+                 responseId,
+                 ...logprobs.length > 0 ? { logprobs } : {},
+-                ...serviceTier !== void 0 ? { serviceTier } : {}
++                ...serviceTier !== void 0 ? { serviceTier } : {},
++                ...responseStatus !== void 0 ? { responseStatus } : {},
++                ...incompleteDetails !== void 0 ? { incompleteDetails } : {},
++                ...responseError !== void 0 ? { responseError } : {}
+               }
+             };
+             controller.enqueue({
+@@ -6488,6 +6578,11 @@ var OpenAIResponsesLanguageModel = class {
+     };
+   }
+ };
++function getDoneDelta(streamedContent, key, completedText) {
++  const streamedText = streamedContent[key] != null ? streamedContent[key] : "";
++  streamedContent[key] = completedText;
++  return completedText.startsWith(streamedText) ? completedText.slice(streamedText.length) : "";
++}
+ function isTextDeltaChunk(chunk) {
+   return chunk.type === "response.output_text.delta";
+ }
+@@ -6498,7 +6593,7 @@ function isResponseFinishedChunk(chunk) {
+   return chunk.type === "response.completed" || chunk.type === "response.incomplete";
+ }
+ function isResponseFailedChunk(chunk) {
+-  return chunk.type === "response.failed";
++  return chunk.type === "response.failed" || chunk.type === "response.cancelled";
+ }
+ function isResponseCreatedChunk(chunk) {
+   return chunk.type === "response.created";
 diff --git a/dist/internal/index.mjs b/dist/internal/index.mjs
-index db50bed..04b9e17 100644
+index db50beda01459008c836cd5648e024340fe31e90..78f16b22b18ce6831a1ef3f2bd377d09cba7bf40 100644
 --- a/dist/internal/index.mjs
 +++ b/dist/internal/index.mjs
 @@ -1760,13 +1760,15 @@ var modelMaxImagesPerCall = {
@@ -82,3 +832,253 @@ index db50bed..04b9e17 100644
  ];
  function hasDefaultResponseFormat(modelId) {
    return defaultResponseFormatPrefixes.some(
+@@ -3271,6 +3273,11 @@ var openaiResponsesChunkSchema = lazySchema15(
+           })
+         ).nullish()
+       }),
++      z17.object({
++        type: z17.literal("response.output_text.done"),
++        item_id: z17.string(),
++        text: z17.string()
++      }),
+       z17.object({
+         type: z17.enum(["response.completed", "response.incomplete"]),
+         response: z17.object({
+@@ -3285,7 +3292,7 @@ var openaiResponsesChunkSchema = lazySchema15(
+         })
+       }),
+       z17.object({
+-        type: z17.literal("response.failed"),
++        type: z17.enum(["response.failed", "response.cancelled"]),
+         response: z17.object({
+           error: z17.object({
+             code: z17.string().nullish(),
+@@ -3746,11 +3753,29 @@ var openaiResponsesChunkSchema = lazySchema15(
+         summary_index: z17.number(),
+         delta: z17.string()
+       }),
++      z17.object({
++        type: z17.literal("response.reasoning_summary_text.done"),
++        item_id: z17.string(),
++        summary_index: z17.number(),
++        text: z17.string()
++      }),
+       z17.object({
+         type: z17.literal("response.reasoning_summary_part.done"),
+         item_id: z17.string(),
+         summary_index: z17.number()
+       }),
++      z17.object({
++        type: z17.literal("response.reasoning_text.delta"),
++        item_id: z17.string(),
++        content_index: z17.number(),
++        delta: z17.string()
++      }),
++      z17.object({
++        type: z17.literal("response.reasoning_text.done"),
++        item_id: z17.string(),
++        content_index: z17.number(),
++        text: z17.string()
++      }),
+       z17.object({
+         type: z17.literal("response.apply_patch_call_operation_diff.delta"),
+         item_id: z17.string(),
+@@ -3793,6 +3818,7 @@ var openaiResponsesResponseSchema = lazySchema15(
+         param: z17.string().nullish(),
+         code: z17.string()
+       }).nullish(),
++      status: z17.enum(["completed", "incomplete", "failed", "cancelled"]).optional(),
+       model: z17.string().optional(),
+       output: z17.array(
+         z17.discriminatedUnion("type", [
+@@ -5643,22 +5669,27 @@ var OpenAIResponsesLanguageModel = class {
+         }
+       }
+     }
++    const responseStatus = response.status != null ? response.status : response.incomplete_details != null ? "incomplete" : "completed";
++    const rawFinishReason = response.incomplete_details != null ? response.incomplete_details.reason : responseStatus === "failed" || responseStatus === "cancelled" ? responseStatus : responseStatus === "incomplete" ? "incomplete" : void 0;
+     const providerMetadata = {
+       [providerOptionsName]: {
+         responseId: response.id,
+         ...logprobs.length > 0 ? { logprobs } : {},
+-        ...typeof response.service_tier === "string" ? { serviceTier: response.service_tier } : {}
++        ...typeof response.service_tier === "string" ? { serviceTier: response.service_tier } : {},
++        responseStatus,
++        incompleteDetails: response.incomplete_details != null ? response.incomplete_details : null,
++        responseError: response.error != null ? response.error : null
+       }
+     };
+     const usage = response.usage;
+     return {
+       content,
+       finishReason: {
+-        unified: mapOpenAIResponseFinishReason({
+-          finishReason: (_z = response.incomplete_details) == null ? void 0 : _z.reason,
++        unified: responseStatus === "failed" ? "error" : responseStatus === "cancelled" || responseStatus === "incomplete" && response.incomplete_details == null ? "other" : mapOpenAIResponseFinishReason({
++          finishReason: response.incomplete_details == null ? void 0 : response.incomplete_details.reason,
+           hasFunctionCall
+         }),
+-        raw: (_B = (_A = response.incomplete_details) == null ? void 0 : _A.reason) != null ? _B : void 0
++        raw: rawFinishReason
+       },
+       usage: convertOpenAIResponsesUsage(usage),
+       request: { body },
+@@ -5710,11 +5741,16 @@ var OpenAIResponsesLanguageModel = class {
+     let usage = void 0;
+     const logprobs = [];
+     let responseId = null;
++    let responseStatus;
++    let incompleteDetails;
++    let responseError;
+     const ongoingToolCalls = {};
+     const ongoingAnnotations = [];
+     let activeMessagePhase;
+     let hasFunctionCall = false;
+     const activeReasoning = {};
++    const streamedContent = {};
++    const startedReasoningText = /* @__PURE__ */ new Set();
+     let serviceTier;
+     const hostedToolSearchCallIds = [];
+     return {
+@@ -6372,6 +6408,8 @@ var OpenAIResponsesLanguageModel = class {
+                 modelId: value.response.model
+               });
+             } else if (isTextDeltaChunk(value)) {
++              const textKey = `text:${value.item_id}`;
++              streamedContent[textKey] = (streamedContent[textKey] != null ? streamedContent[textKey] : "") + value.delta;
+               controller.enqueue({
+                 type: "text-delta",
+                 id: value.item_id,
+@@ -6380,6 +6418,9 @@ var OpenAIResponsesLanguageModel = class {
+               if (((_s = (_r = options.providerOptions) == null ? void 0 : _r[providerOptionsName]) == null ? void 0 : _s.logprobs) && value.logprobs) {
+                 logprobs.push(value.logprobs);
+               }
++            } else if (value.type === "response.output_text.done") {
++              const delta = getDoneDelta(streamedContent, `text:${value.item_id}`, value.text);
++              if (delta) controller.enqueue({ type: "text-delta", id: value.item_id, delta });
+             } else if (value.type === "response.reasoning_summary_part.added") {
+               if (value.summary_index > 0) {
+                 const activeReasoningPart = activeReasoning[value.item_id];
+@@ -6412,9 +6453,11 @@ var OpenAIResponsesLanguageModel = class {
+                 });
+               }
+             } else if (value.type === "response.reasoning_summary_text.delta") {
++              const reasoningId = `${value.item_id}:${value.summary_index}`;
++              streamedContent[reasoningId] = (streamedContent[reasoningId] != null ? streamedContent[reasoningId] : "") + value.delta;
+               controller.enqueue({
+                 type: "reasoning-delta",
+-                id: `${value.item_id}:${value.summary_index}`,
++                id: reasoningId,
+                 delta: value.delta,
+                 providerMetadata: {
+                   [providerOptionsName]: {
+@@ -6422,6 +6465,15 @@ var OpenAIResponsesLanguageModel = class {
+                   }
+                 }
+               });
++            } else if (value.type === "response.reasoning_summary_text.done") {
++              const reasoningId = `${value.item_id}:${value.summary_index}`;
++              const delta = getDoneDelta(streamedContent, reasoningId, value.text);
++              if (delta) controller.enqueue({
++                type: "reasoning-delta",
++                id: reasoningId,
++                delta,
++                providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++              });
+             } else if (value.type === "response.reasoning_summary_part.done") {
+               if (store) {
+                 controller.enqueue({
+@@ -6437,7 +6489,38 @@ var OpenAIResponsesLanguageModel = class {
+               } else {
+                 activeReasoning[value.item_id].summaryParts[value.summary_index] = "can-conclude";
+               }
++            } else if (value.type === "response.reasoning_text.delta" || value.type === "response.reasoning_text.done") {
++              const reasoningId = `${value.item_id}:reasoning:${value.content_index}`;
++              if (!startedReasoningText.has(reasoningId)) {
++                startedReasoningText.add(reasoningId);
++                controller.enqueue({
++                  type: "reasoning-start",
++                  id: reasoningId,
++                  providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++                });
++              }
++              const delta = value.type === "response.reasoning_text.delta" ? value.delta : getDoneDelta(streamedContent, reasoningId, value.text);
++              if (value.type === "response.reasoning_text.delta") {
++                streamedContent[reasoningId] = (streamedContent[reasoningId] != null ? streamedContent[reasoningId] : "") + delta;
++              }
++              if (delta) controller.enqueue({
++                type: "reasoning-delta",
++                id: reasoningId,
++                delta,
++                providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++              });
++              if (value.type === "response.reasoning_text.done") {
++                controller.enqueue({
++                  type: "reasoning-end",
++                  id: reasoningId,
++                  providerMetadata: { [providerOptionsName]: { itemId: value.item_id } }
++                });
++                startedReasoningText.delete(reasoningId);
++              }
+             } else if (isResponseFinishedChunk(value)) {
++              responseStatus = value.type === "response.completed" ? "completed" : "incomplete";
++              incompleteDetails = value.response.incomplete_details != null ? value.response.incomplete_details : null;
++              responseError = null;
+               finishReason = {
+                 unified: mapOpenAIResponseFinishReason({
+                   finishReason: (_v = value.response.incomplete_details) == null ? void 0 : _v.reason,
+@@ -6450,15 +6533,19 @@ var OpenAIResponsesLanguageModel = class {
+                 serviceTier = value.response.service_tier;
+               }
+             } else if (isResponseFailedChunk(value)) {
++              responseStatus = value.type === "response.cancelled" ? "cancelled" : "failed";
++              incompleteDetails = value.response.incomplete_details != null ? value.response.incomplete_details : null;
++              responseError = value.response.error != null ? value.response.error : null;
+               const incompleteReason = (_y = value.response.incomplete_details) == null ? void 0 : _y.reason;
+               finishReason = {
+-                unified: incompleteReason ? mapOpenAIResponseFinishReason({
++                unified: value.type === "response.cancelled" ? "other" : incompleteReason ? mapOpenAIResponseFinishReason({
+                   finishReason: incompleteReason,
+                   hasFunctionCall
+                 }) : "error",
+-                raw: incompleteReason != null ? incompleteReason : "error"
++                raw: incompleteReason != null ? incompleteReason : value.type === "response.cancelled" ? "cancelled" : "error"
+               };
+               usage = (_z = value.response.usage) != null ? _z : void 0;
++              if (typeof value.response.service_tier === "string") serviceTier = value.response.service_tier;
+             } else if (isResponseAnnotationAddedChunk(value)) {
+               ongoingAnnotations.push(value.annotation);
+               if (value.annotation.type === "url_citation") {
+@@ -6527,7 +6614,10 @@ var OpenAIResponsesLanguageModel = class {
+               [providerOptionsName]: {
+                 responseId,
+                 ...logprobs.length > 0 ? { logprobs } : {},
+-                ...serviceTier !== void 0 ? { serviceTier } : {}
++                ...serviceTier !== void 0 ? { serviceTier } : {},
++                ...responseStatus !== void 0 ? { responseStatus } : {},
++                ...incompleteDetails !== void 0 ? { incompleteDetails } : {},
++                ...responseError !== void 0 ? { responseError } : {}
+               }
+             };
+             controller.enqueue({
+@@ -6544,6 +6634,11 @@ var OpenAIResponsesLanguageModel = class {
+     };
+   }
+ };
++function getDoneDelta(streamedContent, key, completedText) {
++  const streamedText = streamedContent[key] != null ? streamedContent[key] : "";
++  streamedContent[key] = completedText;
++  return completedText.startsWith(streamedText) ? completedText.slice(streamedText.length) : "";
++}
+ function isTextDeltaChunk(chunk) {
+   return chunk.type === "response.output_text.delta";
+ }
+@@ -6554,7 +6649,7 @@ function isResponseFinishedChunk(chunk) {
+   return chunk.type === "response.completed" || chunk.type === "response.incomplete";
+ }
+ function isResponseFailedChunk(chunk) {
+-  return chunk.type === "response.failed";
++  return chunk.type === "response.failed" || chunk.type === "response.cancelled";
+ }
+ function isResponseCreatedChunk(chunk) {
+   return chunk.type === "response.created";

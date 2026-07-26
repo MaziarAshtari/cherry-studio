@@ -34,6 +34,7 @@ import type { AppProviderId } from '../types'
 import type { ProviderCapabilities } from '../types'
 import { addAnthropicHeaders } from './anthropicHeaders'
 import { buildGeminiGenerateImageParams } from './image'
+import { resolveReasoningSummarySetting } from './reasoningSerializers'
 import { encodeReasoningInvocation, type ResolvedReasoningInvocation } from './reasoningSerializers'
 import { getWebSearchParams } from './websearch'
 
@@ -134,10 +135,21 @@ export function buildCapabilityProviderOptions(
         providerId: rawProviderId === 'openai-compatible' ? actualProvider.id : providerOptionsKey,
         options: {}
       }
-  const reasoningOptions =
+  const normalizedReasoningOptions =
     rawProviderId === 'openai-compatible' || rawProviderId === 'google-vertex-maas'
       ? { ...resolvedReasoningOptions, options: normalizeOpenAICompatibleParams(resolvedReasoningOptions.options) }
       : resolvedReasoningOptions
+  const reasoningSummary = resolveReasoningSummarySetting(actualProvider.settings.summaryText, context.endpointType)
+  const reasoningOptions =
+    capabilities.enableReasoning && context.endpointType === ENDPOINT_TYPE.OPENAI_RESPONSES && reasoningSummary !== null
+      ? {
+          ...normalizedReasoningOptions,
+          options: {
+            reasoningSummary,
+            ...normalizedReasoningOptions.options
+          }
+        }
+      : normalizedReasoningOptions
 
   let providerSpecificOptions: Record<string, any> = {}
 

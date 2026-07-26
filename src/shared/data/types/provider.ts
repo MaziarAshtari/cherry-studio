@@ -172,10 +172,9 @@ export const ProviderSettingsSchema = z.object({
   // OpenAI / Groq.
   //
   // PATCH semantics for these nullable override fields, applied by `ProviderService.update`'s shallow
-  // merge: key absent = leave the stored value unchanged; `null` = explicitly clear the stored
-  // override; a value = set it. Downstream, `null` and absent produce byte-identical requests
-  // (consumers guard on truthiness / `!= null`), so `null` exists only as the PATCH-level "clear"
-  // marker — the renderer's "off" (null) and "ignore" (absent) options are equivalent on the wire.
+  // merge: key absent = leave the stored value unchanged; `null` = explicitly disable the stored
+  // override; a value = set it. For OpenAI Responses reasoning summaries, a missing `summaryText`
+  // uses the legacy `auto` default while `null` explicitly omits `reasoning.summary`.
   serviceTier: z.string().nullable().optional(),
   verbosity: z.string().nullable().optional(),
   summaryText: z.enum(['auto', 'detailed', 'concise']).nullable().optional(),

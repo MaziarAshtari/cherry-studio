@@ -229,6 +229,55 @@ describe('buildCapabilityProviderOptions', () => {
     expect(result.openai.store).toBe(false)
   })
 
+  it('defaults Responses reasoning summaries to auto without enabling a disabled summary', () => {
+    const assistant = { settings: { reasoning_effort: 'default' } } as Assistant
+    const model = {
+      id: 'openai::gpt-5',
+      providerId: 'openai',
+      name: 'gpt-5',
+      capabilities: [MODEL_CAPABILITY.REASONING],
+      reasoning: {
+        controls: [{ kind: 'effort', values: ['low', 'medium', 'high'] }],
+        selectableEfforts: ['low', 'medium', 'high']
+      }
+    } as unknown as Model
+    const baseProvider = {
+      id: 'openai',
+      name: 'OpenAI',
+      settings: {},
+      defaultChatEndpoint: ENDPOINT_TYPE.OPENAI_RESPONSES
+    } as Provider
+    const context = {
+      aiSdkProviderId: 'openai' as const,
+      runtimeProviderId: 'openai' as const,
+      endpointType: ENDPOINT_TYPE.OPENAI_RESPONSES,
+      reasoning: {
+        kind: 'omit' as const,
+        selection: 'default' as const,
+        emissions: []
+      }
+    }
+    const capabilities = {
+      enableReasoning: true,
+      enableWebSearch: false,
+      enableGenerateImage: false
+    }
+
+    expect(buildCapabilityProviderOptions(assistant, model, baseProvider, capabilities, context).openai).toMatchObject({
+      reasoningSummary: 'auto',
+      store: false
+    })
+    expect(
+      buildCapabilityProviderOptions(
+        assistant,
+        model,
+        { ...baseProvider, settings: { summaryText: null } },
+        capabilities,
+        context
+      ).openai
+    ).not.toHaveProperty('reasoningSummary')
+  })
+
   it('places compatible wire fields in the concrete provider namespace', () => {
     const result = buildCapabilityProviderOptions(
       { settings: { reasoning_effort: 'auto' } } as Assistant,

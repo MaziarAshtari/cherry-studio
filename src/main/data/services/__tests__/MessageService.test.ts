@@ -1125,6 +1125,39 @@ describe('MessageService', () => {
       expect(refs).toHaveLength(1)
       expect(refs[0]).toMatchObject({ fileEntryId: fileId, sourceId: message.id, role: 'attachment' })
     })
+
+    it('round-trips partial output and abnormal terminal details through SQLite reload', async () => {
+      const topicId = 'topic-incomplete-response'
+      await seedTopicWithRoot(topicId)
+      const data = {
+        parts: [
+          { type: 'text', text: 'partial answer' },
+          {
+            type: 'data-error',
+            data: {
+              name: 'FinishReasonError',
+              message: 'output limit',
+              stack: null,
+              finishReason: 'length',
+              rawFinishReason: 'max_output_tokens',
+              responseStatus: 'incomplete',
+              incompleteDetails: { reason: 'max_output_tokens' },
+              i18nKey: 'response_max_output_tokens'
+            }
+          }
+        ]
+      } as MessageData
+      const message = messageService.create(topicId, {
+        role: 'assistant',
+        data,
+        status: 'error'
+      })
+
+      const reloaded = messageService.getById(message.id)
+
+      expect(reloaded.status).toBe('error')
+      expect(reloaded.data).toEqual(data)
+    })
   })
 
   describe('createSibling', () => {

@@ -9,6 +9,7 @@ import type { LanguageModelUsage, ModelMessage, ToolSet, UIMessage, UIMessageChu
 
 import { toModelMessages } from '../../messages/messageRules'
 import type { AppProviderSettingsMap } from '../../types'
+import { assertSuccessfulFinish } from './loop/finishReason'
 import { logger, safeCall, wrapForwardedHook, wrapToolsWithExecutionHooks } from './loop/hookRunner'
 import { resolveToolLoopTerminalError } from './loop/toolLoopTermination'
 import type { AgentLoopHooks, AgentLoopParams } from './loop/types'
@@ -122,6 +123,13 @@ export class Agent<T extends AppProviderKey = AppProviderKey> {
         stopWhen: this.params.options?.stopWhen
       })
       if (terminalError) throw terminalError
+      const lastStep = result.steps.at(-1)
+      assertSuccessfulFinish({
+        finishReason: result.finishReason,
+        rawFinishReason: result.rawFinishReason ?? lastStep?.rawFinishReason,
+        providerMetadata: result.providerMetadata ?? lastStep?.providerMetadata,
+        text: result.text
+      })
       await safeCall('onFinish', hooks.onFinish)
       return { text: result.text, usage: result.usage }
     } catch (err) {
@@ -313,6 +321,20 @@ export class Agent<T extends AppProviderKey = AppProviderKey> {
         stopWhen: params.options?.stopWhen
       })
       if (terminalError) throw terminalError
+      const lastStep = steps?.at(-1)
+      const streamResult = result as typeof result & {
+        rawFinishReason?: PromiseLike<string | undefined>
+        providerMetadata?: PromiseLike<unknown>
+      }
+      assertSuccessfulFinish({
+        finishReason: pendingFinish?.finishReason,
+        rawFinishReason:
+          lastStep?.rawFinishReason ??
+          (streamResult.rawFinishReason ? await Promise.resolve(streamResult.rawFinishReason) : undefined),
+        providerMetadata:
+          lastStep?.providerMetadata ??
+          (streamResult.providerMetadata ? await Promise.resolve(streamResult.providerMetadata) : undefined)
+      })
       if (pendingFinish) {
         if (!(await commitFinish(pendingFinish))) {
           await safeCall('onAbort', hooks.onAbort)

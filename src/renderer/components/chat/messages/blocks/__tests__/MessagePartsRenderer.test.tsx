@@ -1392,7 +1392,7 @@ describe('MessagePartsRenderer', () => {
       expect(screen.getByTestId('mock-message-tools')).toHaveAttribute('data-status', 'cancelled')
     })
 
-    it('shows completed summaries for tools and pure reasoning groups', () => {
+    it('shows completed summaries for tools and keeps pure reasoning visible outside the collapsed group', () => {
       const tools = renderParts([toolPart('read')] as unknown as CherryMessagePart[])
       expect(screen.getByTestId('completed-process-trigger')).toHaveAccessibleName('Processed')
       expect(screen.getByTestId('completed-process-trigger')).toHaveAttribute('aria-expanded', 'false')
@@ -1400,27 +1400,20 @@ describe('MessagePartsRenderer', () => {
       tools.unmount()
 
       renderParts([{ type: 'reasoning', text: 'Only thought', state: 'done' }] as unknown as CherryMessagePart[])
-      const reasoningTrigger = screen.getByTestId('completed-process-trigger')
-      expect(reasoningTrigger).toHaveAccessibleName('Processed')
-      expect(screen.queryByTestId('mock-thinking-block')).toBeNull()
-
-      fireEvent.click(reasoningTrigger)
       expect(screen.getByTestId('mock-thinking-block')).toHaveTextContent('Only thought')
+      expect(screen.queryByTestId('completed-process-trigger')).toBeNull()
     })
 
-    it('reveals completed thinking behind the process summary for a reasoning-and-answer message', () => {
+    it('keeps completed thinking visible beside the final answer', () => {
       renderParts([
         { type: 'reasoning', text: 'Deep thought', state: 'done' },
         { type: 'text', text: 'final answer' }
       ] as unknown as CherryMessagePart[])
 
       expect(screen.getByText('final answer')).toBeInTheDocument()
-      const historyTrigger = screen.getByTestId('completed-process-trigger')
-      expect(screen.queryByTestId('mock-thinking-block')).toBeNull()
-
-      fireEvent.click(historyTrigger)
       expect(screen.getByTestId('mock-thinking-block')).toHaveTextContent('Deep thought')
       expect(screen.getByTestId('mock-thinking-block')).toHaveAttribute('data-streaming', 'false')
+      expect(screen.queryByTestId('completed-process-trigger')).toBeNull()
     })
 
     it('shows processed status and elapsed time in a completed tool summary', () => {
@@ -1455,21 +1448,17 @@ describe('MessagePartsRenderer', () => {
       expect(screen.getByRole('button', { name: 'Error' })).toBeInTheDocument()
     })
 
-    it('keeps terminal reasoning alongside the process error', () => {
+    it('keeps terminal reasoning and the actionable error visible beside partial output', () => {
       renderParts([
         { type: 'text', text: 'partial answer' },
         { type: 'reasoning', text: 'Investigating', state: 'done' },
         { type: 'data-error', data: { name: 'Err', message: 'failed after reasoning' } }
       ] as unknown as CherryMessagePart[])
 
-      const historyTrigger = screen.getByRole('button', { name: 'Error' })
-      expect(historyTrigger).toHaveAttribute('aria-expanded', 'false')
-      expect(screen.queryByTestId('mock-error-block')).toBeNull()
       expect(screen.getByText('partial answer')).toBeInTheDocument()
-
-      fireEvent.click(historyTrigger)
       expect(screen.getByTestId('mock-thinking-block')).toHaveTextContent('Investigating')
       expect(screen.getByTestId('mock-error-block')).toHaveAttribute('data-error-message', 'failed after reasoning')
+      expect(screen.queryByTestId('completed-process-trigger')).toBeNull()
     })
 
     it('renders pure text without a process-history summary', () => {
@@ -1556,7 +1545,7 @@ describe('MessagePartsRenderer', () => {
       expect(html.indexOf('final answer')).toBeLessThan(html.indexOf('report.md'))
     })
 
-    it('keeps adjacent reasoning blocks inside the completed tool group', () => {
+    it('keeps adjacent reasoning blocks visible beside the completed tool group', () => {
       renderParts([
         toolPart('read'),
         ...Array.from({ length: 4 }, (_, index) => ({
@@ -1567,12 +1556,10 @@ describe('MessagePartsRenderer', () => {
         { type: 'text', text: 'final answer' }
       ] as unknown as CherryMessagePart[])
 
-      fireEvent.click(screen.getByTestId('completed-process-trigger'))
-      expandCollapsedChildToolGroups()
-
       expect(screen.getAllByTestId('mock-thinking-block')).toHaveLength(4)
       expect(screen.getByText('thought 4')).toBeInTheDocument()
       expect(screen.getByText('final answer')).toBeInTheDocument()
+      expect(screen.getByTestId('completed-process-trigger')).toHaveAttribute('aria-expanded', 'false')
     })
 
     it('seals unfinished reasoning and tools when a terminal snapshot lacks end chunks', () => {

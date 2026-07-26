@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { createContext, type ReactNode, use } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProviderApiOptionsDrawer from '../ProviderApiOptionsDrawer'
@@ -43,6 +44,7 @@ vi.mock('@shared/utils/provider', () => ({
 }))
 
 vi.mock('@cherrystudio/ui', () => {
+  const SelectContext = createContext<((value: string) => void) | null>(null)
   return {
     Button: ({ children, onClick, ...props }: any) => (
       <button type="button" onClick={onClick} {...props}>
@@ -56,6 +58,22 @@ vi.mock('@cherrystudio/ui', () => {
         {action}
       </div>
     ),
+    Select: ({ children, onValueChange }: { children: ReactNode; onValueChange: (value: string) => void }) => (
+      <SelectContext value={onValueChange}>{children}</SelectContext>
+    ),
+    SelectContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    SelectItem: ({ children, value }: { children: ReactNode; value: string }) => {
+      const onValueChange = use(SelectContext)
+      return (
+        <button type="button" onClick={() => onValueChange?.(value)}>
+          {children}
+        </button>
+      )
+    },
+    SelectTrigger: ({ children, ...props }: { children: ReactNode; 'aria-label'?: string }) => (
+      <div {...props}>{children}</div>
+    ),
+    SelectValue: () => null,
     Switch: ({ checked, onCheckedChange, ...props }: any) => (
       <input type="checkbox" checked={checked} onChange={(event) => onCheckedChange(event.target.checked)} {...props} />
     ),
@@ -167,5 +185,50 @@ describe('ProviderApiOptionsDrawer', () => {
     expect(
       screen.queryByLabelText('settings.provider.api.options.anthropic_cache.token_threshold')
     ).not.toBeInTheDocument()
+  })
+
+  it('shows reasoning-summary controls for a Responses provider and persists an explicit opt-out', () => {
+    useProviderMock.mockReturnValue({
+      provider: {
+        ...provider,
+        defaultChatEndpoint: 'openai-responses',
+        endpointConfigs: { 'openai-responses': { adapterFamily: 'openai' } }
+      },
+      updateProvider: updateProviderMock
+    })
+
+    render(<ProviderApiOptionsDrawer providerId="openai" open onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'settings.provider.api.options.reasoning_summary.off' }))
+
+    expect(updateProviderMock).toHaveBeenCalledWith({
+      providerSettings: {
+        ...provider.settings,
+        summaryText: null
+      }
+    })
+  })
+
+  it('resets reasoning summaries to the inherited auto default with an absent setting', () => {
+    useProviderMock.mockReturnValue({
+      provider: {
+        ...provider,
+        defaultChatEndpoint: 'openai-responses',
+        endpointConfigs: { 'openai-responses': { adapterFamily: 'openai' } },
+        settings: { ...provider.settings, summaryText: 'detailed' }
+      },
+      updateProvider: updateProviderMock
+    })
+
+    render(<ProviderApiOptionsDrawer providerId="openai" open onClose={vi.fn()} />)
+    fireEvent.click(
+      screen.getByRole('button', { name: 'settings.provider.api.options.reasoning_summary.default_auto' })
+    )
+
+    expect(updateProviderMock).toHaveBeenCalledWith({
+      providerSettings: {
+        ...provider.settings,
+        summaryText: undefined
+      }
+    })
   })
 })
