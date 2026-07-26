@@ -77,6 +77,10 @@ interface LlmState {
   settings?: OldLlmSettings
 }
 
+interface LegacySettingsState {
+  openAI?: OldLlmSettings['openAI']
+}
+
 /** The provider logo slot for a given providerId (mirrors ProviderService). */
 function providerLogoSlot(providerId: string) {
   return { sourceType: providerLogoRef.sourceType, sourceId: providerId, role: 'logo' }
@@ -303,6 +307,7 @@ export class ProviderModelMigrator extends BaseMigrator {
     try {
       const warnings: string[] = []
       const llmState = ctx.sources.reduxState.getCategory<LlmState>('llm')
+      const legacySettings = ctx.sources.reduxState.getCategory<LegacySettingsState>('settings')
 
       if (!llmState?.providers || !Array.isArray(llmState.providers)) {
         logger.warn('No llm.providers found in Redux state')
@@ -369,7 +374,12 @@ export class ProviderModelMigrator extends BaseMigrator {
       }
 
       this.providers = dedupedProviders
-      this.settings = llmState.settings ?? {}
+      this.settings = {
+        ...llmState.settings,
+        // An explicit value already carried by the provider/LLM state wins.
+        // The global v1 setting is only a fallback for the final v1 shape.
+        openAI: llmState.settings?.openAI ?? legacySettings?.openAI
+      }
       this.totalModelCount = this.providers.reduce((count, provider) => {
         const uniqueModelIds = new Set((provider.models ?? []).map((model) => model.id))
         return count + uniqueModelIds.size

@@ -5,6 +5,53 @@ import { transformProvider } from '../ProviderModelMappings'
 
 describe('ProviderModelMappings', () => {
   describe('transformProvider', () => {
+    it.each(['auto', 'concise', 'detailed'] as const)(
+      'migrates the legacy OpenAI Responses reasoning summary value %s',
+      (summaryText) => {
+        const result = transformProvider(
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            type: 'openai-response',
+            apiKey: 'k',
+            apiHost: 'https://api.openai.com/v1',
+            models: []
+          } as never,
+          { openAI: { summaryText } }
+        )
+
+        expect(result.providerSettings).toMatchObject({ summaryText })
+      }
+    )
+
+    it('migrates an explicit legacy reasoning-summary opt-out without applying it to Chat Completions', () => {
+      const responses = transformProvider(
+        {
+          id: 'responses',
+          name: 'Responses',
+          type: 'openai-response',
+          apiKey: 'k',
+          apiHost: 'https://api.example.com/v1',
+          models: []
+        } as never,
+        { openAI: { summaryText: null } }
+      )
+      const chat = transformProvider(
+        {
+          id: 'chat',
+          name: 'Chat',
+          type: 'openai',
+          apiKey: 'k',
+          apiHost: 'https://api.example.com/v1',
+          models: []
+        } as never,
+        { openAI: { summaryText: 'detailed' } }
+      )
+
+      expect(responses.providerSettings).toMatchObject({ summaryText: null })
+      expect(chat.providerSettings).toBeNull()
+    })
+
     it('maps custom-id Azure providers to azure-openai preset via type fallback', () => {
       const result = transformProvider(
         {

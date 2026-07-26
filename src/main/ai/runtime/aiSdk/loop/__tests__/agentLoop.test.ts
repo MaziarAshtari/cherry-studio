@@ -109,7 +109,13 @@ describe('Agent', () => {
       const steps = [{ toolResults: [] }]
       await expect(stopWhen({ steps: steps as never })).resolves.toBe(false)
       mockCreateAgent.mockResolvedValue({
-        generate: vi.fn().mockResolvedValue({ text: 'done', usage: TEST_USAGE, steps })
+        generate: vi.fn().mockResolvedValue({
+          text: 'done',
+          usage: TEST_USAGE,
+          steps,
+          finishReason: 'stop',
+          rawFinishReason: 'stop'
+        })
       })
 
       const calls: string[] = []
@@ -131,6 +137,45 @@ describe('Agent', () => {
       expect(onFinish).toHaveBeenCalledOnce()
       expect(onError).not.toHaveBeenCalled()
       expect(calls).toEqual(['finish'])
+    })
+
+    it('rejects an incomplete non-streaming response while preserving its partial output and terminal metadata', async () => {
+      mockCreateAgent.mockResolvedValue({
+        generate: vi.fn().mockResolvedValue({
+          text: 'partial answer',
+          usage: TEST_USAGE,
+          steps: [],
+          finishReason: 'length',
+          rawFinishReason: 'max_output_tokens',
+          providerMetadata: {
+            openai: {
+              responseStatus: 'incomplete',
+              incompleteDetails: { reason: 'max_output_tokens' }
+            }
+          }
+        })
+      })
+
+      const onFinish = vi.fn()
+      const onError = vi.fn(() => 'abort' as const)
+      const { Agent } = await import('../../Agent')
+      const agent = new Agent({
+        providerId: 'openai' as never,
+        providerSettings: {} as never,
+        modelId: 'test-model',
+        hookParts: [{ onFinish, onError }]
+      })
+
+      await expect(agent.generate({ prompt: 'hello' })).rejects.toMatchObject({
+        name: 'FinishReasonError',
+        text: 'partial answer',
+        finishReason: 'length',
+        rawFinishReason: 'max_output_tokens',
+        responseStatus: 'incomplete',
+        incompleteDetails: { reason: 'max_output_tokens' }
+      })
+      expect(onFinish).not.toHaveBeenCalled()
+      expect(onError).toHaveBeenCalledOnce()
     })
 
     it('routes a clean cancellation through onAbort even when generation resolves during the abort', async () => {
@@ -214,6 +259,100 @@ describe('Agent', () => {
     await expect(reader.read()).rejects.toBe(apiError)
     expect(uiOnError).toHaveBeenCalledTimes(2)
     expect(cancelUiStream).toHaveBeenCalledWith(apiError)
+  })
+
+  it('preserves streamed partial output but rejects an abnormal provider finish', async () => {
+    mockCreateAgent.mockResolvedValue({
+      stream: vi.fn().mockResolvedValue({
+        toUIMessageStream: () =>
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: 'text-start', id: 'text-1' })
+              controller.enqueue({ type: 'text-delta', id: 'text-1', delta: 'partial answer' })
+              controller.enqueue({ type: 'text-end', id: 'text-1' })
+              controller.enqueue({ type: 'finish', finishReason: 'length' })
+              controller.close()
+            }
+          }),
+        steps: Promise.resolve([
+          {
+            toolResults: [],
+            finishReason: 'length',
+            rawFinishReason: 'max_output_tokens',
+            providerMetadata: {
+              openai: {
+                responseStatus: 'incomplete',
+                incompleteDetails: { reason: 'max_output_tokens' }
+              }
+            }
+          }
+        ]),
+        rawFinishReason: Promise.resolve('max_output_tokens'),
+        providerMetadata: Promise.resolve({
+          openai: {
+            responseStatus: 'incomplete',
+            incompleteDetails: { reason: 'max_output_tokens' }
+          }
+        })
+      })
+    })
+
+    const onFinish = vi.fn()
+    const onError = vi.fn(() => 'abort' as const)
+    const { Agent } = await import('../../Agent')
+    const agent = new Agent({
+      providerId: 'openai' as never,
+      providerSettings: {} as never,
+      modelId: 'test-model',
+      hookParts: [{ onFinish, onError }]
+    })
+    const reader = agent.stream([], new AbortController().signal).getReader()
+
+    await expect(reader.read()).resolves.toMatchObject({ value: { type: 'text-start' }, done: false })
+    await expect(reader.read()).resolves.toMatchObject({
+      value: { type: 'text-delta', delta: 'partial answer' },
+      done: false
+    })
+    await expect(reader.read()).resolves.toMatchObject({ value: { type: 'text-end' }, done: false })
+    await expect(reader.read()).rejects.toMatchObject({
+      name: 'FinishReasonError',
+      finishReason: 'length',
+      rawFinishReason: 'max_output_tokens',
+      responseStatus: 'incomplete'
+    })
+    expect(onFinish).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a stream that closes without a terminal finish event', async () => {
+    mockCreateAgent.mockResolvedValue({
+      stream: vi.fn().mockResolvedValue({
+        toUIMessageStream: () =>
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: 'text-start', id: 'text-1' })
+              controller.enqueue({ type: 'text-delta', id: 'text-1', delta: 'partial' })
+              controller.close()
+            }
+          }),
+        steps: Promise.resolve([])
+      })
+    })
+
+    const { Agent } = await import('../../Agent')
+    const agent = new Agent({
+      providerId: 'openai' as never,
+      providerSettings: {} as never,
+      modelId: 'test-model'
+    })
+    const reader = agent.stream([], new AbortController().signal).getReader()
+
+    await expect(reader.read()).resolves.toMatchObject({ value: { type: 'text-start' }, done: false })
+    await expect(reader.read()).resolves.toMatchObject({ value: { type: 'text-delta', delta: 'partial' }, done: false })
+    await expect(reader.read()).rejects.toMatchObject({
+      name: 'FinishReasonError',
+      i18nKey: 'response_missing_terminal'
+    })
   })
 
   it('preserves an arrived provider error when the signal aborts after the error chunk is queued', async () => {
@@ -454,6 +593,7 @@ describe('Agent', () => {
             toUIMessageStream: () =>
               new ReadableStream({
                 start(controller) {
+                  controller.enqueue({ type: 'finish', finishReason: 'stop' })
                   controller.close()
                 }
               }),
@@ -530,6 +670,7 @@ describe('Agent', () => {
             toUIMessageStream: () =>
               new ReadableStream({
                 start(controller) {
+                  controller.enqueue({ type: 'finish', finishReason: 'stop' })
                   controller.close()
                 }
               }),
@@ -599,6 +740,7 @@ describe('Agent', () => {
             toUIMessageStream: () =>
               new ReadableStream({
                 start(controller) {
+                  controller.enqueue({ type: 'finish', finishReason: 'stop' })
                   controller.close()
                 }
               }),
@@ -648,6 +790,7 @@ describe('Agent', () => {
       toUIMessageStream: () =>
         new ReadableStream({
           start(controller) {
+            controller.enqueue({ type: 'finish', finishReason: 'stop' })
             controller.close()
           }
         })
@@ -886,6 +1029,7 @@ describe('Agent', () => {
         toUIMessageStream: () =>
           new ReadableStream({
             start(c) {
+              c.enqueue({ type: 'finish', finishReason: 'stop' })
               c.close()
             }
           })

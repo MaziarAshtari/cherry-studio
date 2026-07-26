@@ -2454,6 +2454,12 @@
     "response": "Response",
     "responseBody": "Response Body",
     "responseHeaders": "Response Header",
+    "response_cancelled": "The provider cancelled the response before it completed. Retry the request.",
+    "response_content_filtered": "The provider stopped the response because of its content filter. Revise the request and try again.",
+    "response_failed": "The provider failed before the response completed. Retry or check the provider status.",
+    "response_incomplete": "The provider ended the response before normal completion. Retry or inspect the response details.",
+    "response_max_output_tokens": "The response reached the provider's output-token limit. Increase Max Tokens if you set a limit, reduce reasoning effort, or ask for a shorter answer.",
+    "response_missing_terminal": "The connection ended without a completion event. Check network stability or retry.",
     "responses": "Responses",
     "role": "Role",
     "stack": "Stack Trace",
@@ -7300,6 +7306,15 @@
             "label": "Support enable_thinking"
           },
           "label": "API Settings",
+          "reasoning_summary": {
+            "auto": "Auto",
+            "concise": "Concise",
+            "default_auto": "Default (Auto)",
+            "detailed": "Detailed",
+            "help": "Request a provider-supplied reasoning summary for OpenAI Responses models. This never exposes encrypted reasoning content.",
+            "label": "Reasoning summary",
+            "off": "Off"
+          },
           "service_tier": {
             "help": "Whether the provider supports configuring the service_tier parameter. When enabled, this parameter can be adjusted in the service tier settings on the chat page. (OpenAI models only)",
             "label": "Supports service_tier"

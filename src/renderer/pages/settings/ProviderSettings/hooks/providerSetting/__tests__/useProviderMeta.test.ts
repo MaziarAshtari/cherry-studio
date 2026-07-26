@@ -120,7 +120,7 @@ describe('useProviderMeta', () => {
     expect(result.current.modelsWebsite).toBeUndefined()
   })
 
-  it('keeps api options hidden for system OpenAI-compatible providers without drawer-supported settings', () => {
+  it('shows api options for system Responses providers with reasoning-summary settings', () => {
     useProviderMock.mockReturnValue({
       provider: {
         id: 'openai',
@@ -144,7 +144,7 @@ describe('useProviderMeta', () => {
 
     const { result } = renderHook(() => useProviderMeta('openai'))
 
-    expect(result.current.showApiOptionsButton).toBe(false)
+    expect(result.current.showApiOptionsButton).toBe(true)
   })
 
   it('keeps api options hidden for system OpenAI-compatible providers without visible settings', () => {

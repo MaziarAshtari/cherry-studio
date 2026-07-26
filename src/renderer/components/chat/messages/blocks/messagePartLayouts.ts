@@ -327,10 +327,31 @@ export function projectCompletedMessageParts(entries: readonly PartEntry[]): Com
     }
   }
 
+  const isReasoningInsideToolProcess = (position: number) => {
+    const isBetweenFoldableTools =
+      contentEntries.slice(0, position).some((entry) => isFoldableToolPart(entry.part)) &&
+      contentEntries.slice(position + 1).some((entry) => isFoldableToolPart(entry.part))
+    if (isBetweenFoldableTools) return true
+
+    for (let previousPosition = position - 1; previousPosition >= 0; previousPosition--) {
+      const previousPart = contentEntries[previousPosition].part
+      if (isHiddenPart(previousPart)) continue
+      return isAskUserQuestionPart(previousPart)
+    }
+
+    return false
+  }
+
+  const isTerminalDataError = (entry: PartEntry, position: number) =>
+    (entry.part.type as string) === 'data-error' &&
+    contentEntries.slice(position + 1).every((laterEntry) => isHiddenPart(laterEntry.part))
+
   const isDirectResult = (entry: PartEntry, position: number) =>
-    position >= resultStart &&
-    position < resultEnd &&
-    (isSubstantiveAnswerPart(entry.part) || isAssociatedResultPart(entry.part) || isHiddenPart(entry.part))
+    (isReasoningMessagePart(entry.part) && !isReasoningInsideToolProcess(position)) ||
+    isTerminalDataError(entry, position) ||
+    (position >= resultStart &&
+      position < resultEnd &&
+      (isSubstantiveAnswerPart(entry.part) || isAssociatedResultPart(entry.part) || isHiddenPart(entry.part)))
 
   return {
     historyEntries: contentEntries.filter((entry, position) => !isDirectResult(entry, position)),

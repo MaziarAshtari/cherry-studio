@@ -75,6 +75,26 @@ describe('serializeError', () => {
       expect(serializeError(error).i18nKey).toBe('tool_call_limit_reached')
     })
 
+    it('preserves abnormal Responses terminal metadata', () => {
+      const error = Object.assign(new Error('incomplete'), {
+        finishReason: 'length',
+        rawFinishReason: 'max_output_tokens',
+        responseStatus: 'incomplete',
+        incompleteDetails: { reason: 'max_output_tokens' },
+        providerError: null,
+        i18nKey: 'response_max_output_tokens'
+      })
+
+      expect(serializeError(error)).toMatchObject({
+        finishReason: 'length',
+        rawFinishReason: 'max_output_tokens',
+        responseStatus: 'incomplete',
+        incompleteDetails: { reason: 'max_output_tokens' },
+        providerError: null,
+        i18nKey: 'response_max_output_tokens'
+      })
+    })
+
     it('serializes a RetryError with its discriminant fields', () => {
       const retryError = new RetryError({
         message: 'retry failed',

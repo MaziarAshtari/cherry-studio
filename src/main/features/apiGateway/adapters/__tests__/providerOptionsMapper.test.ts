@@ -159,9 +159,9 @@ describe('cross-dialect descriptor translation', () => {
 
     expect(
       mapAnthropicThinkingToProviderOptions(target, openAIModel, { type: 'enabled', budget_tokens: 6000 })
-    ).toEqual({ openai: { reasoningEffort: 'medium' } })
+    ).toEqual({ openai: { reasoningEffort: 'medium', reasoningSummary: 'auto' } })
     expect(mapAnthropicThinkingToProviderOptions(target, openAIModel, { type: 'disabled' })).toEqual({
-      openai: { reasoningEffort: 'none' }
+      openai: { reasoningEffort: 'none', reasoningSummary: 'auto' }
     })
   })
 
@@ -177,22 +177,33 @@ describe('cross-dialect descriptor translation', () => {
         type: 'enabled',
         budget_tokens: 1500
       })
-    ).toEqual({ openai: { reasoningEffort: 'high' } })
+    ).toEqual({ openai: { reasoningEffort: 'high', reasoningSummary: 'auto' } })
   })
 
   it('normalizes Gemini sentinels, levels, and positive budgets before target dispatch', () => {
     const target = provider('openai', ENDPOINT_TYPE.OPENAI_RESPONSES)
 
     expect(mapGeminiThinkingToProviderOptions(target, openAIModel, { thinkingBudget: -1 })).toEqual({
-      openai: { reasoningEffort: 'medium' }
+      openai: { reasoningEffort: 'medium', reasoningSummary: 'auto' }
     })
     expect(mapGeminiThinkingToProviderOptions(target, openAIModel, { thinkingBudget: 0 })).toEqual({
-      openai: { reasoningEffort: 'none' }
+      openai: { reasoningEffort: 'none', reasoningSummary: 'auto' }
     })
     expect(mapGeminiThinkingToProviderOptions(target, openAIModel, { thinkingLevel: 'high' })).toEqual({
-      openai: { reasoningEffort: 'high' }
+      openai: { reasoningEffort: 'high', reasoningSummary: 'auto' }
     })
     expect(mapGeminiThinkingToProviderOptions(target, openAIModel, { thinkingBudget: 6000 })).toEqual({
+      openai: { reasoningEffort: 'medium', reasoningSummary: 'auto' }
+    })
+  })
+
+  it('keeps an explicit Responses reasoning-summary opt-out', () => {
+    const target = {
+      ...provider('openai', ENDPOINT_TYPE.OPENAI_RESPONSES),
+      settings: { summaryText: null }
+    } as Provider
+
+    expect(mapReasoningEffortToProviderOptions(target, openAIModel, 'medium')).toEqual({
       openai: { reasoningEffort: 'medium' }
     })
   })

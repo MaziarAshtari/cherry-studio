@@ -1,4 +1,14 @@
-import { Input, PageSidePanelItem, Switch, Tooltip } from '@cherrystudio/ui'
+import {
+  Input,
+  PageSidePanelItem,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Switch,
+  Tooltip
+} from '@cherrystudio/ui'
 import { useProvider } from '@renderer/hooks/useProvider'
 import { toast } from '@renderer/services/toast'
 import { cn } from '@renderer/utils/style'
@@ -14,7 +24,7 @@ import { useTranslation } from 'react-i18next'
 
 import ProviderSettingsDrawer from '../primitives/ProviderSettingsDrawer'
 import { drawerClasses } from '../primitives/ProviderSettingsPrimitives'
-import { getProviderApiOptionsVisibility } from '../utils/providerApiOptions'
+import { getProviderApiOptionsVisibility, supportsOpenAiReasoningSummary } from '../utils/providerApiOptions'
 
 interface ProviderApiOptionsDrawerProps {
   providerId: string
@@ -32,6 +42,13 @@ interface ApiOption {
 
 const CACHE_TOKEN_THRESHOLD_MAX = 100000
 const CACHE_LAST_N_MAX = 10
+const DEFAULT_REASONING_SUMMARY = 'default'
+const DISABLED_REASONING_SUMMARY = 'off'
+
+type ReasoningSummarySelection =
+  | typeof DEFAULT_REASONING_SUMMARY
+  | typeof DISABLED_REASONING_SUMMARY
+  | NonNullable<Provider['settings']['summaryText']>
 
 function clampInteger(value: string, min: number, max: number): number {
   const parsed = Number(value)
@@ -179,6 +196,26 @@ export default function ProviderApiOptionsDrawer({ providerId, open, onClose }: 
     [handleSaveError, provider, updateProvider]
   )
 
+  const updateReasoningSummary = useCallback(
+    (selection: ReasoningSummarySelection) => {
+      if (!provider) return
+
+      const summaryText =
+        selection === DEFAULT_REASONING_SUMMARY
+          ? undefined
+          : selection === DISABLED_REASONING_SUMMARY
+            ? null
+            : selection
+      updateProvider({
+        providerSettings: {
+          ...provider.settings,
+          summaryText
+        }
+      }).catch(handleSaveError)
+    },
+    [handleSaveError, provider, updateProvider]
+  )
+
   const commitTokenThreshold = useCallback(() => {
     const next = clampInteger(tokenThresholdDraft, 0, CACHE_TOKEN_THRESHOLD_MAX)
     setTokenThresholdDraft(String(next))
@@ -203,8 +240,15 @@ export default function ProviderApiOptionsDrawer({ providerId, open, onClose }: 
   }
 
   const isSupportAnthropicPromptCache = isAnthropicSupportedProvider(provider)
+  const showReasoningSummary = supportsOpenAiReasoningSummary(provider)
   const showCacheDetailOptions = effectiveCacheTokenThreshold > 0
   const cacheSystemMessage = cacheControl?.cacheSystemMessage ?? true
+  const reasoningSummarySelection =
+    provider.settings.summaryText === undefined
+      ? DEFAULT_REASONING_SUMMARY
+      : provider.settings.summaryText === null
+        ? DISABLED_REASONING_SUMMARY
+        : provider.settings.summaryText
 
   return (
     <ProviderSettingsDrawer
@@ -235,9 +279,50 @@ export default function ProviderApiOptionsDrawer({ providerId, open, onClose }: 
           </div>
         ) : null}
 
-        {isSupportAnthropicPromptCache ? (
+        {showReasoningSummary ? (
           <>
             {options.length > 0 ? <div className={drawerClasses.divider} /> : null}
+            <PageSidePanelItem
+              title={
+                <OptionTitle
+                  id={apiOptionId(providerId, 'reasoning-summary')}
+                  label={t('settings.provider.api.options.reasoning_summary.label')}
+                  help={t('settings.provider.api.options.reasoning_summary.help')}
+                />
+              }
+              action={
+                <Select value={reasoningSummarySelection} onValueChange={updateReasoningSummary}>
+                  <SelectTrigger
+                    id={apiOptionId(providerId, 'reasoning-summary')}
+                    aria-label={t('settings.provider.api.options.reasoning_summary.label')}
+                    size="sm"
+                    className="w-36 shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DEFAULT_REASONING_SUMMARY}>
+                      {t('settings.provider.api.options.reasoning_summary.default_auto')}
+                    </SelectItem>
+                    <SelectItem value={DISABLED_REASONING_SUMMARY}>
+                      {t('settings.provider.api.options.reasoning_summary.off')}
+                    </SelectItem>
+                    <SelectItem value="auto">{t('settings.provider.api.options.reasoning_summary.auto')}</SelectItem>
+                    <SelectItem value="concise">
+                      {t('settings.provider.api.options.reasoning_summary.concise')}
+                    </SelectItem>
+                    <SelectItem value="detailed">
+                      {t('settings.provider.api.options.reasoning_summary.detailed')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              }
+            />
+          </>
+        ) : null}
+
+        {isSupportAnthropicPromptCache ? (
+          <>
+            {options.length > 0 || showReasoningSummary ? <div className={drawerClasses.divider} /> : null}
             <div className="flex flex-col gap-4">
               <PageSidePanelItem
                 title={

@@ -6,14 +6,17 @@
  * user selection, then emits a closed list of target/value operations.
  */
 import type {
+  EndpointType,
   ReasoningEffort,
   ReasoningWireMode,
   ReasoningWireProfile,
   ReasoningWireTarget
 } from '@cherrystudio/provider-registry'
+import { ENDPOINT_TYPE } from '@cherrystudio/provider-registry'
 import { DEFAULT_MAX_TOKENS } from '@main/ai/constants'
 import { nearestThinkingOption, resolveBudgetTokens } from '@shared/ai/reasoning'
 import type { Model } from '@shared/data/types/model'
+import type { Provider } from '@shared/data/types/provider'
 import type { ReasoningEffortOption } from '@shared/types/aiSdk'
 
 export type CanonicalReasoningSelection = ReasoningEffortOption
@@ -45,6 +48,19 @@ const OMIT: ResolvedReasoningInvocation = {
   kind: 'omit',
   selection: 'default',
   emissions: []
+}
+
+/**
+ * Preserve the legacy OpenAI Responses default without erasing an explicit
+ * provider-level opt-out. Other endpoint families keep their existing
+ * pass-through behavior.
+ */
+export function resolveReasoningSummarySetting(
+  summaryText: Provider['settings']['summaryText'],
+  endpointType: EndpointType | undefined
+): Provider['settings']['summaryText'] {
+  if (endpointType !== ENDPOINT_TYPE.OPENAI_RESPONSES) return summaryText
+  return summaryText === undefined ? 'auto' : summaryText
 }
 
 function resolveSelection(

@@ -28,6 +28,9 @@ const logger = loggerService.withContext('ProviderModelMappings')
 
 /** Legacy llm.settings structure used by a few providers. */
 export interface OldLlmSettings {
+  openAI?: {
+    summaryText?: 'auto' | 'detailed' | 'concise' | null
+  }
   ollama?: { keepAliveTime?: number }
   lmstudio?: { keepAliveTime?: number }
   gpustack?: { keepAliveTime?: number }
@@ -385,6 +388,19 @@ function buildApiFeatures(legacy: LegacyProvider): ApiFeatures | null {
 function buildProviderSettings(legacy: LegacyProvider, llmSettings: OldLlmSettings): ProviderSettings | null {
   const settings: ProviderSettings = {}
   let hasValue = false
+
+  if (
+    legacy.type === 'openai-response' &&
+    llmSettings.openAI &&
+    Object.hasOwn(llmSettings.openAI, 'summaryText') &&
+    (llmSettings.openAI.summaryText === null ||
+      llmSettings.openAI.summaryText === 'auto' ||
+      llmSettings.openAI.summaryText === 'detailed' ||
+      llmSettings.openAI.summaryText === 'concise')
+  ) {
+    settings.summaryText = llmSettings.openAI.summaryText
+    hasValue = true
+  }
 
   const keepAliveSettingsKey: Partial<Record<LegacyProvider['id'], keyof OldLlmSettings>> = {
     ollama: 'ollama',

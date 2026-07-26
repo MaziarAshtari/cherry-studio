@@ -338,26 +338,28 @@ describe('projectCompletedMessageParts', () => {
     expect(indexes(ellipsisAnswer.resultEntries)).toEqual([1])
   })
 
-  it.each([
-    [
-      'tools',
-      [
+  it('keeps pure tool messages entirely in history', () => {
+    const layout = projectCompletedMessageParts(
+      entries([
         { type: 'dynamic-tool', toolCallId: 'read', toolName: 'Read', state: 'output-available' },
         { type: 'dynamic-tool', toolCallId: 'edit', toolName: 'Edit', state: 'output-available' }
-      ]
-    ],
-    [
-      'reasoning',
-      [
-        { type: 'reasoning', text: 'Thought one', state: 'done' },
-        { type: 'reasoning', text: 'Thought two', state: 'done' }
-      ]
-    ]
-  ])('keeps pure %s messages entirely in history', (_label, parts) => {
-    const layout = projectCompletedMessageParts(entries(parts as Record<string, unknown>[]))
+      ])
+    )
 
     expect(indexes(layout.historyEntries)).toEqual([0, 1])
     expect(layout.resultEntries).toEqual([])
+  })
+
+  it('keeps pure provider reasoning visible outside process history', () => {
+    const layout = projectCompletedMessageParts(
+      entries([
+        { type: 'reasoning', text: 'Thought one', state: 'done' },
+        { type: 'reasoning', text: 'Thought two', state: 'done' }
+      ])
+    )
+
+    expect(layout.historyEntries).toEqual([])
+    expect(indexes(layout.resultEntries)).toEqual([0, 1])
   })
 
   it('keeps a value-only response and a final value tail outside process history', () => {

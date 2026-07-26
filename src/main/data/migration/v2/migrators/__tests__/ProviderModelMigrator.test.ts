@@ -210,6 +210,26 @@ describe('ProviderModelMigrator', () => {
       expect(migratedProviders[0].providerId).toBe('openai')
     })
 
+    it('migrates the global v1 OpenAI reasoning summary without overwriting an explicit LLM value', async () => {
+      const responseProvider = { ...makeProvider('openai'), type: 'openai-response' }
+      const migrationContext = createContext(dbh.db, {
+        llm: {
+          providers: [responseProvider],
+          settings: { openAI: { summaryText: 'concise' } }
+        },
+        settings: {
+          openAI: { summaryText: 'detailed' }
+        }
+      })
+      await migrator.prepare(migrationContext)
+
+      const result = await migrator.execute(migrationContext)
+
+      expect(result.success).toBe(true)
+      const [row] = await dbh.db.select().from(userProviderTable).where(eq(userProviderTable.providerId, 'openai'))
+      expect(row.providerSettings).toMatchObject({ summaryText: 'concise' })
+    })
+
     it('assigns migrated provider order keys after the seeded CherryAI provider', async () => {
       const migrationContext = createContext(dbh.db, {
         llm: {
