@@ -196,7 +196,13 @@ export class SyncEngine {
         to: string | null
         on_delete: string
       }>(sql`SELECT "table", "from", "to", on_delete FROM pragma_foreign_key_list(${table})`)
-      .map((fk) => ({ from: fk.from, parent: fk.table, to: fk.to, onDelete: fk.on_delete, notNull: notNull.has(fk.from) }))
+      .map((fk) => ({
+        from: fk.from,
+        parent: fk.table,
+        to: fk.to,
+        onDelete: fk.on_delete,
+        notNull: notNull.has(fk.from)
+      }))
     this.fkCache.set(table, fks)
     return fks
   }
@@ -261,7 +267,9 @@ export class SyncEngine {
     return slots
   }
 
-  private async hashBlobs(slots: Map<string, string>): Promise<{ blobs: Record<string, string>; contents: Map<string, Buffer> }> {
+  private async hashBlobs(
+    slots: Map<string, string>
+  ): Promise<{ blobs: Record<string, string>; contents: Map<string, Buffer> }> {
     const blobs: Record<string, string> = {}
     const contents = new Map<string, Buffer>()
     for (const [slot, filePath] of slots) {
@@ -300,28 +308,59 @@ export class SyncEngine {
         const candidates: Row[] = []
         for (const row of light) {
           if (this.isSkippedRow(spec, row)) continue
-          const key = entityKeyOf(spec.table, cols.pk.map((c) => row[c]))
+          const key = entityKeyOf(
+            spec.table,
+            cols.pk.map((c) => row[c])
+          )
           seen.add(key)
           const known = shadow.get(key)
           if (!known || known.updatedAt !== toNumber(row.updated_at)) candidates.push(row)
         }
         if (candidates.length > FULL_ROW_SCAN_THRESHOLD) {
-          const wanted = new Set(candidates.map((row) => entityKeyOf(spec.table, cols.pk.map((c) => row[c]))))
-          fullRows = this.deps.db
-            .all<Row>(sql`SELECT * FROM ${id(spec.table)}`)
-            .filter((row) => wanted.has(entityKeyOf(spec.table, cols.pk.map((c) => row[c]))))
+          const wanted = new Set(
+            candidates.map((row) =>
+              entityKeyOf(
+                spec.table,
+                cols.pk.map((c) => row[c])
+              )
+            )
+          )
+          fullRows = this.deps.db.all<Row>(sql`SELECT * FROM ${id(spec.table)}`).filter((row) =>
+            wanted.has(
+              entityKeyOf(
+                spec.table,
+                cols.pk.map((c) => row[c])
+              )
+            )
+          )
         } else {
           fullRows = candidates
-            .map((row) => this.readRow(spec, cols.pk.map((c) => row[c])))
+            .map((row) =>
+              this.readRow(
+                spec,
+                cols.pk.map((c) => row[c])
+              )
+            )
             .filter((row): row is Row => !!row)
         }
       } else {
-        fullRows = this.deps.db.all<Row>(sql`SELECT * FROM ${id(spec.table)}`).filter((row) => !this.isSkippedRow(spec, row))
-        for (const row of fullRows) seen.add(entityKeyOf(spec.table, cols.pk.map((c) => row[c])))
+        fullRows = this.deps.db
+          .all<Row>(sql`SELECT * FROM ${id(spec.table)}`)
+          .filter((row) => !this.isSkippedRow(spec, row))
+        for (const row of fullRows)
+          seen.add(
+            entityKeyOf(
+              spec.table,
+              cols.pk.map((c) => row[c])
+            )
+          )
       }
 
       for (const row of fullRows) {
-        const key = entityKeyOf(spec.table, cols.pk.map((c) => row[c]))
+        const key = entityKeyOf(
+          spec.table,
+          cols.pk.map((c) => row[c])
+        )
         const slots = await this.collectBlobs(spec, row)
         if (slots === null) continue // content not on disk yet; retry on the next scan
         const { blobs, contents } = await this.hashBlobs(slots)
@@ -330,11 +369,16 @@ export class SyncEngine {
         const known = shadow.get(key)
         const rowUpdatedAt = cols.hasUpdatedAt ? toNumber(row.updated_at) : this.now()
         if (known?.hash === hash) {
-          if (known.updatedAt !== rowUpdatedAt) shadowTouches.push({ entityKey: key, table: spec.table, updatedAt: rowUpdatedAt, hash })
+          if (known.updatedAt !== rowUpdatedAt)
+            shadowTouches.push({ entityKey: key, table: spec.table, updatedAt: rowUpdatedAt, hash })
           continue
         }
         for (const [digest, content] of contents) blobContents.set(digest, content)
-        const payload: EntityPayload = { table: spec.table, row: this.pickSynced(spec, row), ...(hasBlobs ? { blobs } : {}) }
+        const payload: EntityPayload = {
+          table: spec.table,
+          row: this.pickSynced(spec, row),
+          ...(hasBlobs ? { blobs } : {})
+        }
         changes.push({
           entityKey: key,
           category: spec.category,
@@ -382,7 +426,13 @@ export class SyncEngine {
     const byKey = new Map(changes.map((c) => [c.entityKey, c]))
     for (const batch of this.batches(changes)) {
       const { results } = await this.deps.transport.push(
-        batch.map(({ entityKey, category, updatedAt, deleted, data }) => ({ entityKey, category, updatedAt, deleted, data }))
+        batch.map(({ entityKey, category, updatedAt, deleted, data }) => ({
+          entityKey,
+          category,
+          updatedAt,
+          deleted,
+          data
+        }))
       )
       const shadowWrites: Parameters<SyncStateStore['writeShadow']>[0] = []
       const rejected: RemoteRecord[] = []
@@ -457,7 +507,8 @@ export class SyncEngine {
 
   private mergeSummary(target: ApplySummary, source: ApplySummary): void {
     for (const table of source.tables) target.tables.add(table)
-    for (const [baseId, ids] of source.reindex) target.reindex.set(baseId, [...(target.reindex.get(baseId) ?? []), ...ids])
+    for (const [baseId, ids] of source.reindex)
+      target.reindex.set(baseId, [...(target.reindex.get(baseId) ?? []), ...ids])
   }
 
   // ─── Apply remote records ───
@@ -565,7 +616,8 @@ export class SyncEngine {
       for (const op of preferenceOps) {
         const key = String(op.pkValues[1])
         if (this.deps.preferences && !this.deps.preferences.isKnownKey(key)) continue
-        values[key] = typeof op.payload!.row.value === 'string' ? JSON.parse(op.payload!.row.value) : op.payload!.row.value
+        values[key] =
+          typeof op.payload!.row.value === 'string' ? JSON.parse(op.payload!.row.value) : op.payload!.row.value
       }
       if (this.deps.preferences) await this.deps.preferences.apply(values)
       else
@@ -600,7 +652,8 @@ export class SyncEngine {
       resolved.filter((key) => !deferred.some((r) => r.entityKey === key)),
       deferred
     )
-    if (applied.length > 0) logger.info('Applied remote changes', { applied: applied.length, deferred: deferred.length })
+    if (applied.length > 0)
+      logger.info('Applied remote changes', { applied: applied.length, deferred: deferred.length })
     return summary
   }
 
@@ -656,7 +709,9 @@ export class SyncEngine {
       const value = row[fk.from]
       if (value === null || value === undefined || fk.notNull || fk.onDelete !== 'SET NULL') continue
       const parentPk = fk.to ?? 'rowid'
-      const exists = tx.get(sql`SELECT 1 AS ok FROM ${id(fk.parent)} WHERE ${id(parentPk)} = ${value as string | number}`)
+      const exists = tx.get(
+        sql`SELECT 1 AS ok FROM ${id(fk.parent)} WHERE ${id(parentPk)} = ${value as string | number}`
+      )
       if (!exists) row[fk.from] = null
     }
   }
@@ -688,7 +743,10 @@ export class SyncEngine {
         await this.ensureBlobAt(digest, target)
         if (row.origin === 'external') {
           const size = (await fs.stat(target)).size
-          op.payload = { ...payload, row: { ...row, origin: 'internal', external_path: null, size, content_hash: null } }
+          op.payload = {
+            ...payload,
+            row: { ...row, origin: 'internal', external_path: null, size, content_hash: null }
+          }
         }
       } else if (op.spec.kind === 'knowledge_item') {
         for (const [relativePath, digest] of Object.entries(payload.blobs)) {

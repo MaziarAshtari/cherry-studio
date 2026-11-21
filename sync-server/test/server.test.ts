@@ -59,21 +59,21 @@ after(async () => {
   fs.rmSync(dataDir, { recursive: true, force: true })
 })
 
-describe('configuration', () => {
-  it('refuses to start without a token or with a weak token', () => {
+void describe('configuration', () => {
+  void it('refuses to start without a token or with a weak token', () => {
     assert.throws(() => loadConfig({}), /SYNC_AUTH_TOKEN is not set/)
     assert.throws(() => loadConfig({ SYNC_AUTH_TOKEN: 'short' }), /at least/)
   })
 })
 
-describe('authentication', () => {
-  it('serves health without auth', async () => {
+void describe('authentication', () => {
+  void it('serves health without auth', async () => {
     const res = await fetch(`${baseUrl}/api/v1/health`)
     assert.equal(res.status, 200)
     assert.equal(((await res.json()) as { status: string }).status, 'ok')
   })
 
-  it('rejects missing and wrong tokens on every protected endpoint', async () => {
+  void it('rejects missing and wrong tokens on every protected endpoint', async () => {
     const endpoints: Array<[string, string]> = [
       ['GET', '/api/v1/auth/verify'],
       ['GET', '/api/v1/sync/changes?since=0'],
@@ -89,7 +89,7 @@ describe('authentication', () => {
     }
   })
 
-  it('verifies the token and registers the device', async () => {
+  void it('verifies the token and registers the device', async () => {
     const res = await fetch(`${baseUrl}/api/v1/auth/verify`, {
       headers: headers('device-a', { 'X-Device-Name': encodeURIComponent('Laptop ü') })
     })
@@ -99,14 +99,14 @@ describe('authentication', () => {
     assert.deepEqual([body.device.deviceId, body.device.deviceName], ['device-a', 'Laptop ü'])
   })
 
-  it('requires a device id for verification', async () => {
+  void it('requires a device id for verification', async () => {
     const res = await fetch(`${baseUrl}/api/v1/auth/verify`, { headers: { Authorization: `Bearer ${TOKEN}` } })
     assert.equal(res.status, 400)
   })
 })
 
-describe('incremental sync with LWW', () => {
-  it('pushes, pulls incrementally, and resolves conflicts with last-write-wins', async () => {
+void describe('incremental sync with LWW', () => {
+  void it('pushes, pulls incrementally, and resolves conflicts with last-write-wins', async () => {
     const start = (await pull('device-b', 0)).latestRevision
 
     const first = await push('device-a', [
@@ -156,7 +156,7 @@ describe('incremental sync with LWW', () => {
     )
   })
 
-  it('propagates tombstones and does not resurrect deleted entities with stale writes', async () => {
+  void it('propagates tombstones and does not resurrect deleted entities with stale writes', async () => {
     await push('device-a', [
       { entityKey: 'assistant:9', category: 'assistants', updatedAt: 2000, deleted: false, data: { n: 1 } }
     ])
@@ -178,7 +178,7 @@ describe('incremental sync with LWW', () => {
     assert.equal(resurrect.results[0].status, 'rejected')
   })
 
-  it('filters changes by category and paginates by revision', async () => {
+  void it('filters changes by category and paginates by revision', async () => {
     const base = (await pull('device-a', 0)).latestRevision
     await push('device-a', [
       { entityKey: 'p:1', category: 'providers', updatedAt: 1, deleted: false, data: 1 },
@@ -204,7 +204,7 @@ describe('incremental sync with LWW', () => {
     assert.equal(page2.hasMore, false)
   })
 
-  it('rejects malformed pushes', async () => {
+  void it('rejects malformed pushes', async () => {
     const res = await fetch(`${baseUrl}/api/v1/sync/push`, {
       method: 'POST',
       headers: headers('device-a', { 'Content-Type': 'application/json' }),
@@ -214,8 +214,8 @@ describe('incremental sync with LWW', () => {
   })
 })
 
-describe('content-addressed blobs', () => {
-  it('stores each blob once and serves it back', async () => {
+void describe('content-addressed blobs', () => {
+  void it('stores each blob once and serves it back', async () => {
     const content = Buffer.from('hello cherry studio')
     const sha = createHash('sha256').update(content).digest('hex')
     const url = `${baseUrl}/api/v1/blobs/${sha}`
@@ -234,7 +234,7 @@ describe('content-addressed blobs', () => {
     assert.deepEqual(Buffer.from(await got.arrayBuffer()), content)
   })
 
-  it('rejects content whose hash does not match and oversized blobs', async () => {
+  void it('rejects content whose hash does not match and oversized blobs', async () => {
     const wrongSha = createHash('sha256').update('other').digest('hex')
     const mismatch = await fetch(`${baseUrl}/api/v1/blobs/${wrongSha}`, {
       method: 'PUT',
@@ -255,8 +255,8 @@ describe('content-addressed blobs', () => {
   })
 })
 
-describe('real-time events', () => {
-  it('notifies other devices about new revisions over SSE', async () => {
+void describe('real-time events', () => {
+  void it('notifies other devices about new revisions over SSE', async () => {
     const controller = new AbortController()
     const res = await fetch(`${baseUrl}/api/v1/sync/events`, {
       headers: headers('device-b'),

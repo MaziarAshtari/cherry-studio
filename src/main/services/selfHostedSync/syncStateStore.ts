@@ -130,7 +130,9 @@ export class SyncStateStore {
   }
 
   getShadowForTable(table: string): Map<string, ShadowEntry> {
-    const rows = this.db.prepare('SELECT entity_key, tbl, updated_at, hash FROM shadow WHERE tbl = ?').all(table) as Array<{
+    const rows = this.db
+      .prepare('SELECT entity_key, tbl, updated_at, hash FROM shadow WHERE tbl = ?')
+      .all(table) as Array<{
       entity_key: string
       tbl: string
       updated_at: number
@@ -142,9 +144,9 @@ export class SyncStateStore {
   }
 
   getShadow(entityKey: string): ShadowEntry | undefined {
-    const row = this.db.prepare('SELECT entity_key, tbl, updated_at, hash FROM shadow WHERE entity_key = ?').get(entityKey) as
-      | { entity_key: string; tbl: string; updated_at: number; hash: string }
-      | undefined
+    const row = this.db
+      .prepare('SELECT entity_key, tbl, updated_at, hash FROM shadow WHERE entity_key = ?')
+      .get(entityKey) as { entity_key: string; tbl: string; updated_at: number; hash: string } | undefined
     return row ? { entityKey: row.entity_key, table: row.tbl, updatedAt: row.updated_at, hash: row.hash } : undefined
   }
 

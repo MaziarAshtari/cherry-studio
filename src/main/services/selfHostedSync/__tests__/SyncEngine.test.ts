@@ -2,10 +2,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { setupTestDatabase } from '@test-helpers/db'
 import Database from 'better-sqlite3'
 import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
-import { setupTestDatabase } from '@test-helpers/db'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { registerKnowledgeFunctions } from '@data/db/knowledgeFunctions'
@@ -36,7 +36,11 @@ class FakeServer {
         const results: PushResult[] = changes.map((change) => {
           const existing = this.records.get(change.entityKey)
           const data = change.deleted ? null : change.data
-          if (existing && existing.deleted === change.deleted && JSON.stringify(existing.data) === JSON.stringify(data)) {
+          if (
+            existing &&
+            existing.deleted === change.deleted &&
+            JSON.stringify(existing.data) === JSON.stringify(data)
+          ) {
             return { entityKey: change.entityKey, status: 'merged', revision: existing.revision }
           }
           if (existing) {
@@ -44,7 +48,8 @@ class FakeServer {
               change.updatedAt !== existing.updatedAt
                 ? change.updatedAt > existing.updatedAt
                 : deviceId >= existing.deviceId
-            if (!newer) return { entityKey: change.entityKey, status: 'rejected', revision: existing.revision, current: existing }
+            if (!newer)
+              return { entityKey: change.entityKey, status: 'rejected', revision: existing.revision, current: existing }
           }
           const record: RemoteRecord = { ...change, data, deviceId, revision: ++this.revision }
           this.records.set(change.entityKey, record)
@@ -135,7 +140,7 @@ describe('SyncEngine', () => {
   }
 
   const count = (db: DbType, table: string) =>
-    db.get<{ n: number }>(sql`SELECT count(*) AS n FROM ${sql.identifier(table)}`)!.n
+    db.get<{ n: number }>(sql`SELECT count(*) AS n FROM ${sql.identifier(table)}`)?.n
 
   const topicName = (db: DbType, id: string) =>
     db.get<{ name: string }>(sql`SELECT name FROM topic WHERE id = ${id}`)?.name
@@ -164,9 +169,9 @@ describe('SyncEngine', () => {
     expect(count(b.db, 'message')).toBe(2)
     expect(topicName(b.db, 'topic-1')).toBe('Topic')
     // Full-text search triggers ran for synced messages.
-    expect(
-      b.db.get<{ n: number }>(sql`SELECT count(*) AS n FROM message_fts WHERE message_fts MATCH 'sync'`)!.n
-    ).toBe(1)
+    expect(b.db.get<{ n: number }>(sql`SELECT count(*) AS n FROM message_fts WHERE message_fts MATCH 'sync'`)?.n).toBe(
+      1
+    )
 
     const revisionAfter = server.revision
     expect((await b.engine.scanLocalChanges(ALL)).changes).toEqual([])
@@ -217,9 +222,13 @@ describe('SyncEngine', () => {
     const b = cloneDevice('device-b')
     const a = makeDevice('device-a', dbh.db, () => {})
     const chatsOnly: ReadonlySet<SelfHostedSyncCategory> = new Set(['chats'])
-    a.db.run(sql`INSERT INTO mcp_server (id, name, is_active, created_at, updated_at) VALUES ('mcp-a', 'A server', 1, 1, 1)`)
+    a.db.run(
+      sql`INSERT INTO mcp_server (id, name, is_active, created_at, updated_at) VALUES ('mcp-a', 'A server', 1, 1, 1)`
+    )
     insertTopicWithMessages(a.db, 'topic-1', null)
-    b.db.run(sql`INSERT INTO mcp_server (id, name, is_active, created_at, updated_at) VALUES ('mcp-b', 'B server', 1, 1, 1)`)
+    b.db.run(
+      sql`INSERT INTO mcp_server (id, name, is_active, created_at, updated_at) VALUES ('mcp-b', 'B server', 1, 1, 1)`
+    )
 
     await a.engine.sync(ALL)
     await b.engine.sync(chatsOnly)
@@ -231,7 +240,10 @@ describe('SyncEngine', () => {
     // Re-enabling the category later catches up from the start.
     b.state.resetCategory('mcp', ['mcp_server'])
     await b.engine.sync(ALL)
-    expect(b.db.all<{ id: string }>(sql`SELECT id FROM mcp_server ORDER BY id`).map((r) => r.id)).toEqual(['mcp-a', 'mcp-b'])
+    expect(b.db.all<{ id: string }>(sql`SELECT id FROM mcp_server ORDER BY id`).map((r) => r.id)).toEqual([
+      'mcp-a',
+      'mcp-b'
+    ])
   })
 
   it('syncs attachment content through deduplicated blobs and nulls references to unsynced rows', async () => {
@@ -260,6 +272,30 @@ describe('SyncEngine', () => {
       external_path: null,
       size: 7
     })
+    expect((await b.engine.scanLocalChanges(ALL)).changes).toEqual([])
+  })
+
+  it('ships knowledge files and marks received items for local re-indexing', async () => {
+    const b = cloneDevice('device-b')
+    const a = makeDevice('device-a', dbh.db, () => {})
+    a.db
+      .run(sql`INSERT INTO knowledge_base (id, name, order_key, status, chunk_size, chunk_overlap, created_at, updated_at)
+      VALUES ('kb-1', 'Docs', 'a0', 'completed', 512, 64, 1, 1)`)
+    a.db.run(sql`INSERT INTO knowledge_item (id, base_id, type, data, status, created_at, updated_at)
+      VALUES ('item-1', 'kb-1', 'file', ${JSON.stringify({ source: 'C:\\Users\\me\\guide.md', relativePath: 'guide.md' })},
+        'completed', 1, 1)`)
+    const sourceFile = path.join(tmp, 'device-a', 'kb', 'kb-1', 'raw', 'guide.md')
+    fs.mkdirSync(path.dirname(sourceFile), { recursive: true })
+    fs.writeFileSync(sourceFile, '# Guide')
+
+    await a.engine.sync(ALL)
+    const summary = await b.engine.sync(ALL)
+
+    expect(fs.readFileSync(path.join(tmp, 'device-b', 'kb', 'kb-1', 'raw', 'guide.md'), 'utf8')).toBe('# Guide')
+    expect(b.db.get(sql`SELECT status FROM knowledge_item WHERE id = 'item-1'`)).toEqual({ status: 'idle' })
+    expect(summary.reindex).toEqual(new Map([['kb-1', ['item-1']]]))
+    // Index status is device-local, so finishing the re-index must not be pushed back.
+    b.db.run(sql`UPDATE knowledge_item SET status = 'completed', updated_at = 99 WHERE id = 'item-1'`)
     expect((await b.engine.scanLocalChanges(ALL)).changes).toEqual([])
   })
 

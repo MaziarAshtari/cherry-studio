@@ -1,5 +1,5 @@
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
-import { BookOpen, CloudUpload, FileText, FolderCog, FolderInput, Import, Server } from 'lucide-react'
+import { BookOpen, CloudUpload, FileText, FolderCog, FolderInput, Import, RefreshCcwDot, Server } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { type FC, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -31,6 +31,7 @@ const NotionSettings = lazy(() => import('./NotionSettings'))
 const NutstoreSettings = lazy(() => import('./NutstoreSettings'))
 const ObsidianSettings = lazy(() => import('./ObsidianSettings'))
 const S3Settings = lazy(() => import('./S3Settings'))
+const SelfHostedSyncSettings = lazy(() => import('./SelfHostedSync/SelfHostedSyncSettings'))
 const SiyuanSettings = lazy(() => import('./SiyuanSettings'))
 const WebDavSettings = lazy(() => import('./WebDavSettings'))
 const YuqueSettings = lazy(() => import('./YuqueSettings'))
@@ -59,6 +60,11 @@ const DataSettings: FC = () => {
     { key: 'webdav', title: t('settings.data.webdav.title'), icon: <CloudUpload size={16} /> },
     { key: 'nutstore', title: t('settings.data.nutstore.title'), icon: <NutstoreIcon size={16} /> },
     { key: 's3', title: t('settings.data.s3.title.label'), icon: <Server size={16} /> },
+    {
+      key: 'self_hosted_sync',
+      title: t('settings.data.self_hosted_sync.title'),
+      icon: <RefreshCcwDot size={16} />
+    },
     { key: 'divider_2', isDivider: true, text: t('settings.data.divider.import_settings') },
     {
       key: 'import_settings',
@@ -119,6 +125,7 @@ const DataSettings: FC = () => {
             {menu === 'webdav' && <WebDavSettings />}
             {menu === 'nutstore' && <NutstoreSettings />}
             {menu === 's3' && <S3Settings />}
+            {menu === 'self_hosted_sync' && <SelfHostedSyncSettings />}
             {menu === 'import_settings' && <ImportMenuOptions />}
             {menu === 'export_menu' && <ExportMenuOptions />}
             {menu === 'markdown_export' && <MarkdownExportSettings />}

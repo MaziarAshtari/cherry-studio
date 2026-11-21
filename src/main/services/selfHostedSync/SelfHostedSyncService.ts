@@ -10,7 +10,6 @@ import { loggerService } from '@logger'
 import { BaseService, Injectable, Phase, ServicePhase } from '@main/core/lifecycle'
 import type { DataApiDataChangeEffect } from '@shared/data/api/types'
 import { DefaultPreferences } from '@shared/data/preference/preferenceSchemas'
-import type { UnifiedPreferenceType } from '@shared/data/preference/preferenceTypes'
 import {
   SELF_HOSTED_SYNC_CATEGORIES,
   type SelfHostedSyncCategory,
@@ -69,7 +68,7 @@ export class SelfHostedSyncService extends BaseService {
   private deviceId = ''
   private engine: SyncEngine | null = null
   private client: SyncHttpClient | null = null
-  private state: SelfHostedSyncState = 'disabled'
+  private syncState: SelfHostedSyncState = 'disabled'
   private lastError: string | null = null
   private streamConnected = false
   private streamAbort: AbortController | null = null
@@ -94,7 +93,7 @@ export class SelfHostedSyncService extends BaseService {
   }
 
   protected override async onStop(): Promise<void> {
-    this.deactivate()
+    this.stopConnection()
     await this.activeCycle
   }
 
@@ -161,7 +160,7 @@ export class SelfHostedSyncService extends BaseService {
     if (!this.running) {
       const config = this.getConfig()
       if (!config.serverUrl || !config.authToken) throw new Error('Server URL and auth token are required')
-      this.activate(config)
+      this.startConnection(config)
     }
     await this.runCycle('full')
     return this.getStatus()
@@ -180,15 +179,15 @@ export class SelfHostedSyncService extends BaseService {
 
   private getStatus(): SelfHostedSyncStatus {
     return {
-      state: this.state,
+      state: this.syncState,
       deviceId: this.deviceId,
       lastSyncAt: this.store?.getLastSyncAt() ?? null,
       lastError: this.lastError
     }
   }
 
-  private setState(state: SelfHostedSyncState, error: string | null = this.lastError): void {
-    this.state = state
+  private setSyncState(state: SelfHostedSyncState, error: string | null = this.lastError): void {
+    this.syncState = state
     this.lastError = error
     try {
       application.get('IpcApiService').broadcast('self_hosted_sync.status_changed', this.getStatus())
@@ -198,22 +197,22 @@ export class SelfHostedSyncService extends BaseService {
   }
 
   private restart(): void {
-    this.deactivate()
+    this.stopConnection()
     const config = this.getConfig()
     if (config.enabled && config.serverUrl && config.authToken) {
       try {
-        this.activate(config)
+        this.startConnection(config)
       } catch (error) {
-        this.setState('error', error instanceof Error ? error.message : String(error))
+        this.setSyncState('error', error instanceof Error ? error.message : String(error))
         return
       }
       this.requestCycle('full')
     } else {
-      this.setState('disabled', null)
+      this.setSyncState('disabled', null)
     }
   }
 
-  private activate(config: SelfHostedSyncConfig): void {
+  private startConnection(config: SelfHostedSyncConfig): void {
     const store = this.requireStore()
     const serverUrl = normalizeServerUrl(config.serverUrl)
     store.bindServer(serverUrl)
@@ -231,16 +230,16 @@ export class SelfHostedSyncService extends BaseService {
       files: this.fileLocations(),
       preferences: {
         isKnownKey: (key) => key in DefaultPreferences.default,
-        apply: (values) => application.get('PreferenceService').setMultiple(values as Partial<UnifiedPreferenceType>)
+        apply: (values) => application.get('PreferenceService').setMultiple(values)
       }
     })
     this.running = true
     this.lastTotalChanges = this.readTotalChanges()
     if (config.enabled) this.startEventStream()
-    this.setState('idle', null)
+    this.setSyncState('idle', null)
   }
 
-  private deactivate(): void {
+  private stopConnection(): void {
     this.running = false
     this.streamAbort?.abort()
     this.streamAbort = null
@@ -338,7 +337,7 @@ export class SelfHostedSyncService extends BaseService {
     if (!engine || !this.running) return
     const config = this.getConfig()
     const categories = new Set(SELF_HOSTED_SYNC_CATEGORIES.filter((c) => config.categories[c]))
-    this.setState('syncing')
+    this.setSyncState('syncing')
     try {
       let summary: ApplySummary
       if (mode === 'push') summary = await engine.push(categories)
@@ -349,12 +348,12 @@ export class SelfHostedSyncService extends BaseService {
       this.lastTotalChanges = this.readTotalChanges()
       this.afterRemoteApply(summary)
       this.requireStore().setLastSyncAt(Date.now())
-      this.setState(this.idleState(), null)
+      this.setSyncState(this.idleState(), null)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       logger.error('Sync cycle failed', { mode, error: message })
       this.lastTotalChanges = this.readTotalChanges()
-      this.setState('error', message)
+      this.setSyncState('error', message)
       throw error
     }
   }
@@ -366,7 +365,9 @@ export class SelfHostedSyncService extends BaseService {
       application
         .get('KnowledgeService')
         .reindexItems(baseId, itemIds)
-        .catch((error: unknown) => logger.warn('Re-indexing synced knowledge items failed', { baseId, error: String(error) }))
+        .catch((error: unknown) =>
+          logger.warn('Re-indexing synced knowledge items failed', { baseId, error: String(error) })
+        )
     }
   }
 
@@ -384,7 +385,7 @@ export class SelfHostedSyncService extends BaseService {
             () => {
               backoff = RECONNECT_MIN_MS
               this.streamConnected = true
-              if (this.state === 'idle') this.setState('connected')
+              if (this.syncState === 'idle') this.setSyncState('connected')
             },
             () => this.scheduleLivePull()
           )
@@ -394,7 +395,7 @@ export class SelfHostedSyncService extends BaseService {
         }
         if (abort.signal.aborted) return
         this.streamConnected = false
-        if (this.state === 'connected') this.setState('idle')
+        if (this.syncState === 'connected') this.setSyncState('idle')
         await new Promise((resolve) => setTimeout(resolve, backoff))
         backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
       }

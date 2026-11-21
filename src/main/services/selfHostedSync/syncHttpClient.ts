@@ -158,7 +158,8 @@ export class SyncHttpClient implements SyncTransport {
       headers: this.headers({ Accept: 'text/event-stream' }),
       signal
     })
-    if (!response.ok || !response.body) throw new SyncHttpError(response.status, `Event stream failed: ${response.status}`)
+    if (!response.ok || !response.body)
+      throw new SyncHttpError(response.status, `Event stream failed: ${response.status}`)
     onOpen()
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
@@ -173,7 +174,10 @@ export class SyncHttpClient implements SyncTransport {
         buffer = buffer.slice(boundary + 2)
         boundary = buffer.indexOf('\n\n')
         const lines = block.split('\n')
-        const event = lines.find((l) => l.startsWith('event:'))?.slice(6).trim()
+        const event = lines
+          .find((l) => l.startsWith('event:'))
+          ?.slice(6)
+          .trim()
         const data = lines
           .filter((l) => l.startsWith('data:'))
           .map((l) => l.slice(5).trim())
