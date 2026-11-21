@@ -1,0 +1,16 @@
+services:
+  cherry-sync:
+    build: .
+    image: cherry-studio-sync-server:latest
+    container_name: cherry-sync
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      DATA_DIR: /data
+    # Bound to localhost only: expose it to the internet through Caddy/Nginx with HTTPS.
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./data:/data

@@ -1,0 +1,24 @@
+[Unit]
+Description=Cherry Studio self-hosted sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cherrysync
+Group=cherrysync
+WorkingDirectory=/opt/cherry-sync
+EnvironmentFile=/opt/cherry-sync/.env
+Environment=HOST=127.0.0.1
+Environment=DATA_DIR=/var/lib/cherry-sync
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning src/server.ts
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/cherry-sync
+
+[Install]
+WantedBy=multi-user.target

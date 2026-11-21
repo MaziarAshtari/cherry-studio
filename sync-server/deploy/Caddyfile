@@ -1,0 +1,9 @@
+sync.example.com {
+	# SSE needs unbuffered streaming; flush_interval -1 disables response buffering.
+	reverse_proxy 127.0.0.1:8787 {
+		flush_interval -1
+	}
+	request_body {
+		max_size 1GB
+	}
+}
