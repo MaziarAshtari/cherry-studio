@@ -7,6 +7,7 @@ export const DATA_PANEL_KEYS = [
   'webdav',
   'nutstore',
   's3',
+  'self_hosted_sync',
   'import_settings',
   'export_menu',
   'markdown_export',

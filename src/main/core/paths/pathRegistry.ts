@@ -275,6 +275,7 @@ export function buildPathRegistry() {
     'feature.files.data': path.join(appUserDataData, 'Files'),
     'feature.notes.data': path.join(appUserDataData, 'Notes'),
     'feature.knowledgebase.data': path.join(appUserDataData, 'KnowledgeBase'),
+    'feature.self_hosted_sync.data': path.join(appUserDataData, 'SelfHostedSync'),
 
     // Mini apps
     // Installed mini app packages, one directory per appId
