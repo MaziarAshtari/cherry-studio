@@ -1,0 +1,41 @@
+name: Fork Build Windows x64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-win-x64:
+    runs-on: windows-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=8192
+      WIN_SIGN: "false"
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build application
+        run: pnpm run build
+
+      - name: Package Windows x64 installer
+        run: pnpm exec electron-builder --win --x64 --publish never
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: cherry-studio-win-x64
+          path: dist/**/*.exe
+          if-no-files-found: error
