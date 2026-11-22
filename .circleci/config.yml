@@ -1,0 +1,66 @@
+version: 2.1
+
+jobs:
+  build-win-x64:
+    machine:
+      image: windows-server-2025-gui:current
+    resource_class: windows.medium
+    shell: powershell.exe -ExecutionPolicy Bypass
+    environment:
+      CI: "true"
+      NODE_OPTIONS: "--max-old-space-size=10240"
+      WIN_SIGN: "false"
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      pnpm_config_manage_package_manager_versions: "false"
+    steps:
+      - checkout
+      - run:
+          name: Install Node.js 24.12.0 and pnpm 12.6.0
+          command: |
+            $ErrorActionPreference = "Stop"
+            $ProgressPreference = "SilentlyContinue"
+            $toolsDir = "C:\cherry-tools"
+            New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+            curl.exe -fsSL "https://nodejs.org/dist/v24.12.0/node-v24.12.0-win-x64.zip" -o "$toolsDir\node.zip"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Expand-Archive -Path "$toolsDir\node.zip" -DestinationPath $toolsDir -Force
+            $nodeBin = "$toolsDir\node-v24.12.0-win-x64"
+            $env:PATH = "$nodeBin;$env:PATH"
+            npm install --prefix $nodeBin -g pnpm@12.6.0
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node -v
+            pnpm -v
+      - run:
+          name: Install dependencies
+          no_output_timeout: 20m
+          command: |
+            $ErrorActionPreference = "Stop"
+            $env:PATH = "C:\cherry-tools\node-v24.12.0-win-x64;$env:PATH"
+            pnpm install
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - run:
+          name: Build and package Windows x64 installer
+          no_output_timeout: 30m
+          command: |
+            $ErrorActionPreference = "Stop"
+            $env:PATH = "C:\cherry-tools\node-v24.12.0-win-x64;$env:PATH"
+            pnpm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            pnpm exec electron-builder --win --x64 --publish never
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            New-Item -ItemType Directory -Force -Path "release-artifacts" | Out-Null
+            $exes = Get-ChildItem -Path "dist" -Filter "*.exe" -File
+            if (-not $exes) {
+              Write-Error "No .exe installer found in dist directory."
+              exit 1
+            }
+            $exes | Copy-Item -Destination "release-artifacts"
+            Get-ChildItem -Path "release-artifacts"
+      - store_artifacts:
+          path: release-artifacts
+          destination: windows-x64
+
+workflows:
+  build-windows:
+    jobs:
+      - build-win-x64
