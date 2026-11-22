@@ -9,7 +9,6 @@ jobs:
     environment:
       CI: "true"
       NODE_OPTIONS: "--max-old-space-size=10240"
-      WIN_SIGN: "false"
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
       pnpm_config_manage_package_manager_versions: "false"
     steps:
@@ -46,7 +45,7 @@ jobs:
             $env:PATH = "C:\cherry-tools\node-v24.12.0-win-x64;$env:PATH"
             pnpm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            pnpm exec electron-builder --win --x64 --publish never
+            pnpm exec electron-builder --win --x64 --publish never "-c.win.signtoolOptions.sign=null"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             New-Item -ItemType Directory -Force -Path "release-artifacts" | Out-Null
             $exes = Get-ChildItem -Path "dist" -Filter "*.exe" -File
